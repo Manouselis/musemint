@@ -34,7 +34,7 @@ The extension runs only on `music.youtube.com`. It does not use analytics, a rem
 
 Required site access:
 
-- `https://music.youtube.com/*` â€” show the panel and communicate with YouTube Music.
+- `https://music.youtube.com/*` — show the panel and communicate with YouTube Music.
 
 ## Verification
 
@@ -48,10 +48,9 @@ The integration boundary uses YouTube Music's first-party web requests. Because 
 
 ## Files
 
-- `manifest.json` â€” Manifest V3 package definition.
-- `content.js` / `content.css` â€” panel, extraction, ranking workflow, and interaction design.
-- `core.js` â€” deterministic taste-graph ranking engine.
-- `page-bridge.js` â€” narrow same-origin bridge for related tracks and playlist edits.
-- `service-worker.js` â€” toolbar toggle.
-- `tests/core.test.js` â€” ranking invariant tests.
-
+- `manifest.json` — Manifest V3 package definition.
+- `content.js` / `content.css` — panel, extraction, ranking workflow, and interaction design.
+- `core.js` — deterministic taste-graph ranking engine.
+- `page-bridge.js` — narrow same-origin bridge for related tracks and playlist edits.
+- `service-worker.js` — toolbar toggle.
+- `tests/core.test.js` — ranking invariant tests.
