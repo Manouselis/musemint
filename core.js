@@ -9,6 +9,14 @@
   const clean = (value = "") => String(value).replace(/\s+/g, " ").trim();
   const key = (value = "") => clean(value).toLocaleLowerCase().replace(/[^\p{L}\p{N}]+/gu, " ").trim();
   const sigmoid = (x) => 1 / (1 + Math.exp(-x));
+  function hash(value) {
+    let result = 2166136261;
+    for (const char of String(value)) {
+      result ^= char.codePointAt(0);
+      result = Math.imul(result, 16777619);
+    }
+    return result >>> 0;
+  }
 
   function canonicalTrack(raw) {
     const title = clean(raw.title);
@@ -55,7 +63,7 @@
   }
 
   function baseScore(track, context) {
-    const { artistCounts, seedReach, familiarity, adventure } = context;
+    const { artistCounts, seedReach, familiarity, adventure, feedback, variation } = context;
     const reach = seedReach.get(track.videoId)?.size || 1;
     const rankSignal = 1 - clamp((track.sourceRank - 1) / 50);
     const familiarArtist = artistCounts.has(track.artistKey) ? 1 : 0;
@@ -64,7 +72,11 @@
     const noveltyTarget = adventure / 100;
     const noveltyFit = 1 - Math.abs(obscurity - noveltyTarget);
     const familiarityFit = familiarArtist * (familiarity / 100) + (1 - familiarArtist) * (1 - familiarity / 100);
-    return 0.34 * rankSignal + 0.27 * consensus + 0.24 * noveltyFit + 0.15 * familiarityFit;
+    const artistAffinity = clamp(Number(feedback?.artists?.[track.artistKey] || 0) / 3, -1, 1);
+    const trackAffinity = Number(feedback?.tracks?.[track.videoId] || 0);
+    const remixSignal = variation > 0 ? ((hash(`${track.videoId}|${variation}`) % 1000) / 999 - 0.5) * 0.22 : 0;
+    return 0.30 * rankSignal + 0.25 * consensus + 0.21 * noveltyFit + 0.13 * familiarityFit
+      + 0.08 * artistAffinity + 0.12 * trackAffinity + remixSignal;
   }
 
   function similarity(a, b) {
@@ -81,9 +93,11 @@
       adventure: clamp(Number(options.adventure ?? 68), 0, 100),
       familiarity: clamp(Number(options.familiarity ?? 28), 0, 100),
       diversity: clamp(Number(options.diversity ?? 82), 0, 100),
-      limit: Math.max(1, Number(options.limit ?? 12))
+      limit: Math.max(1, Number(options.limit ?? 12)),
+      variation: Math.max(0, Number(options.variation ?? 0)),
+      feedback: options.feedback || { tracks: {}, artists: {} }
     };
-    const pool = dedupe(rawCandidates, seeds);
+    const pool = dedupe(rawCandidates, seeds).filter((track) => settings.feedback.tracks?.[track.videoId] !== -1);
     const stats = seedStats(seeds);
     const seedReach = new Map();
     for (const raw of rawCandidates) {
@@ -137,5 +151,5 @@
     return picks.slice(0, count);
   }
 
-  return { canonicalTrack, chooseSeeds, dedupe, key, recommend, similarity };
+  return { canonicalTrack, chooseSeeds, dedupe, hash, key, recommend, similarity };
 });

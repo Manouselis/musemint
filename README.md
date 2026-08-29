@@ -1,4 +1,4 @@
-# MuseMint 0.9.2
+# YouTube Music Playlist Suggester — MuseMint 1.0
 
 MuseMint is a local-first Chrome extension that discovers better additions for the YouTube Music playlist you are viewing and adds them in one click.
 
@@ -10,7 +10,7 @@ MuseMint is a local-first Chrome extension that discovers better additions for t
 4. Open a playlist at `https://music.youtube.com/playlist?list=...`.
 5. Click **Find gems**, then **Mint discoveries**.
 
-After a successful add, MuseMint refreshes the current playlist through YouTube Music's client-side router. The page does not perform a full reload and the MuseMint panel stays open.
+Successful adds never navigate away from the current page. The MuseMint panel stays open and marks every added track immediately.
 
 You can also pin MuseMint and click its toolbar icon to open or close the panel.
 
@@ -24,6 +24,9 @@ MuseMint does not extend the final track or repeat a single artist cluster. Its 
 - removes tracks already present, normalized duplicates, and repeated artists;
 - uses maximal marginal relevance to trade off fit against similarity;
 - exposes **Adventure** and **Artist novelty** controls;
+- makes **Remix picks** produce a new diversity-preserving variation;
+- plays an optional 20-second preview without leaving the playlist;
+- learns locally from likes and dislikes, boosting preferred artists and suppressing rejected tracks;
 - optionally asks Chrome's on-device language model to rerank the shortlist for mood, texture, and surprising bridges.
 
 The graph ranking always works without an AI model download. If Chrome's `LanguageModel` API is available, the panel labels the engine **On-device AI + taste graph**. No API key is required.
@@ -35,6 +38,7 @@ The extension runs only on `music.youtube.com`. It does not use analytics, a rem
 Required site access:
 
 - `https://music.youtube.com/*` — show the panel and communicate with YouTube Music.
+- `storage` — remember local recommendation feedback. It is never uploaded by MuseMint.
 
 ## Verification
 

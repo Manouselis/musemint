@@ -4,7 +4,6 @@
   window.__museMintBridge = true;
 
   const SOURCE = "musemint-extension";
-  let syncTimer = 0;
 
   function config() {
     const get = (name) => window.ytcfg?.get?.(name);
@@ -111,33 +110,10 @@
     return { initial, expansions: settled.filter((x) => x.status === "fulfilled").map((x) => x.value) };
   }
 
-  function syncPlaylist(playlistId) {
-    clearTimeout(syncTimer);
-    syncTimer = setTimeout(() => {
-      const app = document.querySelector("ytmusic-app");
-      const browseId = `VL${playlistId}`;
-      try {
-        if (typeof app?.navigate_ === "function") {
-          app.navigate_(browseId);
-          return;
-        }
-        app?.dispatchEvent(new CustomEvent("yt-navigate", {
-          bubbles: true,
-          composed: true,
-          detail: { endpoint: { browseEndpoint: { browseId } }, reload: true }
-        }));
-      } catch (_) {
-        // The playlist edit succeeded; visual synchronization is best-effort.
-      }
-    }, 420);
-    return { scheduled: true };
-  }
-
   async function handle(type, payload) {
     if (type === "neighbors") return neighbors(payload);
     if (type === "search") return api("search", { query: payload.query });
     if (type === "playlist") return api("browse", { browseId: `VL${payload.playlistId}` });
-    if (type === "sync") return syncPlaylist(payload.playlistId);
     if (type === "add") {
       return api("browse/edit_playlist", {
         playlistId: payload.playlistId,

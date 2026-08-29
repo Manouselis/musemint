@@ -49,3 +49,26 @@ test("multi-seed consensus receives a stronger score", () => {
   assert.equal(result[0].videoId, "bridge");
   assert.match(result[0].reason, /2 corners/);
 });
+
+test("disliked tracks are removed and liked artists receive an affinity boost", () => {
+  const pool = [
+    { videoId: "liked-artist", title: "Left Field", artist: "Fresh", sourceRank: 8, seedId: "s1" },
+    { videoId: "neutral", title: "Center", artist: "Neutral", sourceRank: 2, seedId: "s1" },
+    { videoId: "blocked", title: "Never Again", artist: "Blocked", sourceRank: 1, seedId: "s1" }
+  ];
+  const feedback = { tracks: { blocked: -1 }, artists: { fresh: 5 } };
+  const result = Core.recommend(pool, seeds, { limit: 3, feedback });
+  assert.ok(!result.some((track) => track.videoId === "blocked"));
+  assert.equal(result[0].videoId, "liked-artist");
+});
+
+test("remix variation changes ordering without changing the candidate set", () => {
+  const pool = Array.from({ length: 12 }, (_, index) => ({
+    videoId: `v${index}`, title: `Track ${index}`, artist: `Artist ${index}`, sourceRank: 6, seedId: "s1"
+  }));
+  const first = Core.recommend(pool, seeds, { limit: 8, variation: 1 }).map((x) => x.videoId);
+  const second = Core.recommend(pool, seeds, { limit: 8, variation: 2 }).map((x) => x.videoId);
+  assert.notDeepEqual(first, second);
+  assert.equal(new Set(first).size, first.length);
+  assert.equal(new Set(second).size, second.length);
+});

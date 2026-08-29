@@ -1,9 +1,11 @@
 {
   "manifest_version": 3,
-  "name": "MuseMint — Playlist Discovery",
-  "version": "0.9.2",
-  "description": "Taste-graph recommendations and one-click playlist adds for YouTube Music.",
+  "name": "YouTube Music Playlist Suggester — MuseMint",
+  "short_name": "MuseMint",
+  "version": "1.0.0",
+  "description": "AI-powered song suggestions, previews, and one-click adds for YouTube Music playlists.",
   "minimum_chrome_version": "120",
+  "permissions": ["storage"],
   "host_permissions": ["https://music.youtube.com/*"],
   "content_scripts": [
     {

@@ -14,7 +14,10 @@
     added: new Set(),
     rejected: new Set(),
     aiSession: null,
-    aiStatus: "Taste graph"
+    aiStatus: "Taste graph",
+    variation: 0,
+    feedback: { tracks: {}, artists: {} },
+    preview: { videoId: "", frame: null, timer: 0, button: null }
   };
   const pending = new Map();
 
@@ -192,7 +195,7 @@
         <section class="mm-status" hidden><span class="mm-spinner"></span><strong>Mapping your taste graph…</strong><small>Sampling distant corners of this playlist</small></section>
         <section class="mm-results" hidden><div class="mm-result-head"><span class="mm-count"></span><span class="mm-engine"></span></div><div class="mm-list"></div></section>
       </div>
-      <footer><span>Private by design</span><span>Runs inside YouTube Music</span></footer>
+      <footer><button class="mm-privacy" aria-describedby="mm-privacy-tip">Private by design<span id="mm-privacy-tip" role="tooltip">No analytics or remote server. Playlist analysis and learning stay in this browser; optional Chrome AI runs on-device.</span></button><span>Runs inside YouTube Music</span></footer>
     </aside>`;
   document.documentElement.appendChild(shell);
 
@@ -223,8 +226,60 @@
       adventure: Number($('input[name="adventure"]').value),
       familiarity: 100 - Number($('input[name="familiarity"]').value),
       diversity: 84,
-      limit: 14
+      limit: 14,
+      variation: state.variation,
+      feedback: state.feedback
     };
+  }
+
+  async function loadFeedback() {
+    try {
+      const stored = await chrome.storage.local.get("musemintFeedback");
+      const feedback = stored.musemintFeedback;
+      if (feedback?.tracks && feedback?.artists) state.feedback = feedback;
+    } catch (_) {}
+  }
+
+  function saveFeedback() {
+    chrome.storage.local.set({ musemintFeedback: state.feedback }).catch(() => {});
+  }
+
+  function stopPreview() {
+    clearTimeout(state.preview.timer);
+    state.preview.frame?.remove();
+    if (state.preview.button) {
+      state.preview.button.classList.remove("is-playing");
+      state.preview.button.innerHTML = "▶";
+      state.preview.button.setAttribute("aria-label", "Play 20-second preview");
+    }
+    state.preview = { videoId: "", frame: null, timer: 0, button: null };
+  }
+
+  function togglePreview(track, button) {
+    if (state.preview.videoId === track.videoId) return stopPreview();
+    stopPreview();
+    const frame = document.createElement("iframe");
+    frame.className = "mm-preview-frame";
+    frame.title = `Preview of ${track.title}`;
+    frame.allow = "autoplay";
+    frame.src = `https://www.youtube.com/embed/${encodeURIComponent(track.videoId)}?autoplay=1&controls=0&start=20&end=40&playsinline=1`;
+    document.body.appendChild(frame);
+    button.classList.add("is-playing");
+    button.innerHTML = "■";
+    button.setAttribute("aria-label", `Stop preview of ${track.title}`);
+    state.preview = { videoId: track.videoId, frame, button, timer: setTimeout(stopPreview, 20000) };
+  }
+
+  function vote(track, value) {
+    const current = Number(state.feedback.tracks[track.videoId] || 0);
+    const next = current === value ? 0 : value;
+    state.feedback.tracks[track.videoId] = next;
+    const artistKey = Core.key(track.artist);
+    const delta = next - current;
+    state.feedback.artists[artistKey] = Math.max(-5, Math.min(5, Number(state.feedback.artists[artistKey] || 0) + delta));
+    saveFeedback();
+    state.recommendations = Core.recommend(state.candidates, state.tracks, options());
+    render();
   }
 
   function createTrackCard(track, index) {
@@ -244,12 +299,32 @@
     const why = document.createElement("small");
     why.textContent = track.reason;
     copy.append(title, artist, why);
+    const actions = document.createElement("div");
+    actions.className = "mm-actions";
+    const preview = document.createElement("button");
+    preview.className = "mm-preview";
+    preview.innerHTML = "▶";
+    preview.setAttribute("aria-label", `Play 20-second preview of ${track.title}`);
+    preview.addEventListener("click", () => togglePreview(track, preview));
+    const like = document.createElement("button");
+    like.className = "mm-vote mm-like";
+    like.textContent = "↑";
+    like.classList.toggle("is-active", state.feedback.tracks[track.videoId] === 1);
+    like.setAttribute("aria-label", `Like ${track.title}; improve similar recommendations`);
+    like.addEventListener("click", () => vote(track, 1));
+    const dislike = document.createElement("button");
+    dislike.className = "mm-vote mm-dislike";
+    dislike.textContent = "↓";
+    dislike.classList.toggle("is-active", state.feedback.tracks[track.videoId] === -1);
+    dislike.setAttribute("aria-label", `Dislike ${track.title}; hide it and reduce similar recommendations`);
+    dislike.addEventListener("click", () => vote(track, -1));
     const add = document.createElement("button");
     add.className = "mm-add";
     add.setAttribute("aria-label", `Add ${track.title} to playlist`);
     add.innerHTML = `<span>+</span><em>Add</em>`;
     if (state.added.has(track.videoId)) { add.classList.add("is-added"); add.innerHTML = `<span>✓</span><em>Added</em>`; }
     add.addEventListener("click", () => addTrack(track, add));
+    actions.append(preview, like, dislike, add);
     const dismiss = document.createElement("button");
     dismiss.className = "mm-dismiss";
     dismiss.textContent = "×";
@@ -259,7 +334,7 @@
       card.classList.add("is-leaving");
       setTimeout(() => { card.remove(); updateCount(); }, 220);
     });
-    card.append(art, copy, add, dismiss);
+    card.append(art, copy, actions, dismiss);
     return card;
   }
 
@@ -269,6 +344,7 @@
   }
 
   function render() {
+    if (state.preview.frame) stopPreview();
     list.replaceChildren();
     state.recommendations.filter((x) => !state.rejected.has(x.videoId)).forEach((track, i) => list.appendChild(createTrackCard(track, i)));
     $(".mm-engine").textContent = state.aiStatus;
@@ -286,8 +362,7 @@
       button.classList.remove("is-working");
       button.classList.add("is-added");
       button.innerHTML = `<span>✓</span><em>Added</em>`;
-      button.title = "Added — syncing the playlist view";
-      bridge("sync", { playlistId: state.playlistId }, 5000).catch(() => {});
+      button.title = "Added to playlist";
     } catch (error) {
       button.disabled = false;
       button.classList.remove("is-working");
@@ -305,6 +380,7 @@
       return;
     }
     state.loading = true;
+    await feedbackReady;
     const aiPromise = prepareAI();
     hero.hidden = true;
     controls.hidden = true;
@@ -342,8 +418,9 @@
     }
   }
 
-  function rerank() {
+  function rerank(isRemix = false) {
     if (!state.candidates.length) return generate();
+    if (isRemix) state.variation += 1;
     state.recommendations = Core.recommend(state.candidates, state.tracks, options());
     render();
   }
@@ -351,10 +428,11 @@
   launch.addEventListener("click", () => setOpen(true));
   $(".mm-close").addEventListener("click", () => setOpen(false));
   $(".mm-generate").addEventListener("click", generate);
-  $(".mm-refresh").addEventListener("click", rerank);
+  $(".mm-refresh").addEventListener("click", () => rerank(true));
   shell.querySelectorAll('input[type="range"]').forEach((input) => input.addEventListener("change", rerank));
   document.addEventListener("keydown", (event) => { if (event.key === "Escape" && state.open) setOpen(false); });
   chrome.runtime.onMessage.addListener((message) => { if (message.type === "MUSEMINT_TOGGLE") setOpen(!state.open); });
+  const feedbackReady = loadFeedback();
 
   let previousUrl = location.href;
   new MutationObserver(() => {
