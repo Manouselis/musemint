@@ -149,7 +149,6 @@
 .mm-preview, .mm-vote { width: 20px; height: 20px; padding: 0; display: grid; place-items: center; border: 1px solid var(--mm-line); border-radius: 50%; background: transparent; color: var(--mm-muted); font-size: 9px; line-height: 1; cursor: pointer; }
 .mm-preview:hover, .mm-preview.is-playing { border-color: var(--mm-coral); background: var(--mm-coral); color: white; }
 .mm-vote:hover { border-color: var(--mm-ink); color: var(--mm-ink); }
-.mm-like.is-active { border-color: #4c9b57; background: #4c9b57; color: white; }
 .mm-dislike.is-active { border-color: var(--mm-coral); background: var(--mm-coral); color: white; }
 .mm-add { min-width: 58px; height: 34px; padding: 0 10px; display: flex; align-items: center; justify-content: center; gap: 5px; border: 1px solid var(--mm-ink); border-radius: 100px; background: transparent; color: var(--mm-ink); cursor: pointer; }
 .mm-actions .mm-add { grid-column: 1 / -1; width: 66px; min-width: 0; height: 30px; padding: 0 7px; }
@@ -169,6 +168,14 @@
 .mm-privacy [role="tooltip"] { position: absolute; left: -10px; bottom: 25px; width: 255px; padding: 11px 12px; border-radius: 8px; background: var(--mm-ink); color: white; font-size: 10px; font-weight: 500; line-height: 1.45; letter-spacing: 0; text-align: left; text-transform: none; box-shadow: 0 10px 28px rgba(0,0,0,.25); opacity: 0; visibility: hidden; transform: translateY(5px); transition: opacity .16s, transform .16s, visibility .16s; pointer-events: none; }
 .mm-privacy:hover [role="tooltip"], .mm-privacy:focus-visible [role="tooltip"] { opacity: 1; visibility: visible; transform: translateY(0); }
 .mm-preview-frame { position: fixed !important; width: 1px !important; height: 1px !important; left: -9999px !important; bottom: 0 !important; border: 0 !important; opacity: .01 !important; pointer-events: none !important; }
+
+.mm-playlist-added-row { min-height: 56px; padding: 6px 24px 6px 8px; display: grid; grid-template-columns: 40px minmax(0, 1fr) auto; gap: 14px; align-items: center; border-bottom: 1px solid rgba(255,255,255,.08); color: var(--ytmusic-text-primary, #fff); animation: mm-rise .35s both cubic-bezier(.22,1,.36,1); }
+.mm-playlist-added-row img { width: 40px; height: 40px; object-fit: cover; background: rgba(255,255,255,.08); }
+.mm-playlist-added-row > div { min-width: 0; display: flex; flex-direction: column; }
+.mm-playlist-added-row strong, .mm-playlist-added-row > div span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mm-playlist-added-row strong { font-size: 14px; }
+.mm-playlist-added-row > div span { margin-top: 3px; color: var(--ytmusic-text-secondary, #aaa); font-size: 12px; }
+.mm-playlist-added-badge { padding: 5px 9px; border-radius: 100px; background: var(--mm-acid); color: var(--mm-ink); font-size: 9px; font-weight: 850; text-transform: uppercase; }
 
 @media (max-width: 520px) {
   .mm-panel { inset: 0; width: 100vw; border: 0; border-radius: 0; }

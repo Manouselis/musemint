@@ -1,4 +1,4 @@
-# YouTube Music Playlist Suggester — MuseMint 1.0
+# YouTube Music Playlist Suggester — MuseMint 1.1
 
 MuseMint is a local-first Chrome extension that discovers better additions for the YouTube Music playlist you are viewing and adds them in one click.
 
@@ -25,11 +25,13 @@ MuseMint does not extend the final track or repeat a single artist cluster. Its 
 - uses maximal marginal relevance to trade off fit against similarity;
 - exposes **Adventure** and **Artist novelty** controls;
 - makes **Remix picks** produce a new diversity-preserving variation;
-- plays an optional 20-second preview without leaving the playlist;
-- learns locally from likes and dislikes, boosting preferred artists and suppressing rejected tracks;
-- optionally asks Chrome's on-device language model to rerank the shortlist for mood, texture, and surprising bridges.
+- plays a chorus-biased 20-second preview without leaving the playlist, pausing and restoring current playback;
+- treats an add as positive taste feedback and learns locally from dislikes;
+- reads every playlist continuation page before ranking or duplicate removal;
+- automatically regenerates when YouTube Music switches playlists without a page reload;
+- offers a **Popularity** control from deep cuts to bigger hits.
 
-The graph ranking always works without an AI model download. If Chrome's `LanguageModel` API is available, the panel labels the engine **On-device AI + taste graph**. No API key is required.
+MuseMint uses a deterministic, inspectable taste graph. It does not use a language model, cloud model, or API key.
 
 ## Privacy and permissions
 
@@ -55,6 +57,7 @@ The integration boundary uses YouTube Music's first-party web requests. Because 
 - `manifest.json` — Manifest V3 package definition.
 - `content.js` / `content.css` — panel, extraction, ranking workflow, and interaction design.
 - `core.js` — deterministic taste-graph ranking engine.
+- `pagination.js` — complete playlist continuation and membership-ID utilities.
 - `page-bridge.js` — narrow same-origin bridge for related tracks and playlist edits.
 - `service-worker.js` — toolbar toggle.
 - `tests/core.test.js` — ranking invariant tests.

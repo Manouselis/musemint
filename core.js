@@ -29,6 +29,7 @@
       duration: clean(raw.duration),
       thumbnail: clean(raw.thumbnail),
       seedId: clean(raw.seedId),
+      setVideoId: clean(raw.setVideoId),
       sourceRank: Number.isFinite(raw.sourceRank) ? raw.sourceRank : 50,
       isExplicit: Boolean(raw.isExplicit),
       titleKey: key(title),
@@ -63,7 +64,7 @@
   }
 
   function baseScore(track, context) {
-    const { artistCounts, seedReach, familiarity, adventure, feedback, variation } = context;
+    const { artistCounts, seedReach, familiarity, adventure, popularity, feedback, variation } = context;
     const reach = seedReach.get(track.videoId)?.size || 1;
     const rankSignal = 1 - clamp((track.sourceRank - 1) / 50);
     const familiarArtist = artistCounts.has(track.artistKey) ? 1 : 0;
@@ -72,10 +73,12 @@
     const noveltyTarget = adventure / 100;
     const noveltyFit = 1 - Math.abs(obscurity - noveltyTarget);
     const familiarityFit = familiarArtist * (familiarity / 100) + (1 - familiarArtist) * (1 - familiarity / 100);
+    const popularityEstimate = clamp(0.72 * rankSignal + 0.28 * consensus);
+    const popularityFit = 1 - Math.abs(popularityEstimate - popularity / 100);
     const artistAffinity = clamp(Number(feedback?.artists?.[track.artistKey] || 0) / 3, -1, 1);
     const trackAffinity = Number(feedback?.tracks?.[track.videoId] || 0);
     const remixSignal = variation > 0 ? ((hash(`${track.videoId}|${variation}`) % 1000) / 999 - 0.5) * 0.22 : 0;
-    return 0.30 * rankSignal + 0.25 * consensus + 0.21 * noveltyFit + 0.13 * familiarityFit
+    return 0.23 * rankSignal + 0.22 * consensus + 0.18 * noveltyFit + 0.11 * familiarityFit + 0.16 * popularityFit
       + 0.08 * artistAffinity + 0.12 * trackAffinity + remixSignal;
   }
 
@@ -92,6 +95,7 @@
     const settings = {
       adventure: clamp(Number(options.adventure ?? 68), 0, 100),
       familiarity: clamp(Number(options.familiarity ?? 28), 0, 100),
+      popularity: clamp(Number(options.popularity ?? 50), 0, 100),
       diversity: clamp(Number(options.diversity ?? 82), 0, 100),
       limit: Math.max(1, Number(options.limit ?? 12)),
       variation: Math.max(0, Number(options.variation ?? 0)),
@@ -151,5 +155,14 @@
     return picks.slice(0, count);
   }
 
-  return { canonicalTrack, chooseSeeds, dedupe, hash, key, recommend, similarity };
+  function previewWindow(duration) {
+    const parts = String(duration || "").split(":").map(Number);
+    const valid = parts.length >= 2 && parts.every(Number.isFinite);
+    const seconds = valid ? parts.reduce((total, part) => total * 60 + part, 0) : 0;
+    if (seconds < 60) return { start: 15, end: 35 };
+    const start = Math.round(clamp(seconds * 0.38, 30, Math.max(30, seconds - 25)));
+    return { start, end: Math.min(seconds - 2, start + 20) };
+  }
+
+  return { canonicalTrack, chooseSeeds, dedupe, hash, key, previewWindow, recommend, similarity };
 });

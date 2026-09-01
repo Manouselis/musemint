@@ -11,13 +11,13 @@
     tracks: [],
     candidates: [],
     recommendations: [],
-    added: new Set(),
+    added: new Map(),
     rejected: new Set(),
-    aiSession: null,
-    aiStatus: "Taste graph",
     variation: 0,
     feedback: { tracks: {}, artists: {} },
-    preview: { videoId: "", frame: null, timer: 0, button: null }
+    preview: { videoId: "", frame: null, timer: 0, button: null, resumePlayer: false },
+    generationId: 0,
+    routeTimer: 0
   };
   const pending = new Map();
 
@@ -82,6 +82,7 @@
       duration,
       thumbnail: thumbnailFrom(data),
       seedId,
+      setVideoId: data.playlistItemData?.playlistSetVideoId || data.playlistSetVideoId || "",
       isExplicit: JSON.stringify(data.badges || []).includes("EXPLICIT")
     };
   }
@@ -105,22 +106,9 @@
     return found.map((track, index) => ({ ...track, sourceRank: index + 1 }));
   }
 
-  function scrapeVisibleTracks() {
-    const rows = [...document.querySelectorAll("ytmusic-responsive-list-item-renderer")];
-    return rows.map((row) => {
-      const anchor = row.querySelector('a[href*="watch?v="]');
-      if (!anchor) return null;
-      const url = new URL(anchor.href, location.origin);
-      const artists = [...row.querySelectorAll('a[href*="browse/"]')].map((x) => x.textContent.trim()).filter(Boolean);
-      const image = row.querySelector("img")?.src || "";
-      return { videoId: url.searchParams.get("v"), title: anchor.textContent.trim(), artist: artists[0] || "Unknown artist", thumbnail: image };
-    }).filter((x) => x?.videoId && x.title);
-  }
-
   async function getPlaylistTracks(id) {
-    const scraped = scrapeVisibleTracks();
-    if (scraped.length >= 4) return Core.dedupe(scraped);
-    const response = await bridge("playlist", { playlistId: id });
+    const response = await bridge("playlist", { playlistId: id }, 90000);
+    if (!response.complete) throw new Error("This playlist is too large to load completely. Please retry.");
     return Core.dedupe(extractTracks(response));
   }
 
@@ -129,45 +117,6 @@
       bridge("search", { query: `${seed.artist} ${seed.title}` }).then((data) => extractTracks(data, seed.videoId))
     ));
     return searches.flatMap((result) => result.status === "fulfilled" ? result.value : []);
-  }
-
-  async function prepareAI() {
-    if (state.aiSession || !("LanguageModel" in globalThis)) return null;
-    try {
-      const options = { expectedInputs: [{ type: "text", languages: ["en"] }], expectedOutputs: [{ type: "text", languages: ["en"] }] };
-      const availability = await LanguageModel.availability(options);
-      if (availability === "unavailable") return null;
-      state.aiStatus = availability === "available" ? "On-device AI" : "Downloading on-device AI";
-      state.aiSession = await LanguageModel.create(options);
-      state.aiStatus = "On-device AI + taste graph";
-      return state.aiSession;
-    } catch (_) {
-      state.aiStatus = "Taste graph";
-      return null;
-    }
-  }
-
-  async function aiRerank(items, seeds) {
-    const session = state.aiSession;
-    if (!session || items.length < 3) return items;
-    const compactSeeds = seeds.slice(0, 24).map((x) => `${x.artist} — ${x.title}`).join("\n");
-    const compactItems = items.slice(0, 24).map((x) => `${x.videoId}|${x.artist}|${x.title}`).join("\n");
-    const prompt = `You are a daring music curator. Rank candidates for coherent taste, surprising bridges, and low obviousness. Do not group the same artist. Playlist:\n${compactSeeds}\nCandidates (id|artist|title):\n${compactItems}\nReturn only JSON: [{"id":"...","reason":"specific reason under 11 words"}]. Include every candidate exactly once.`;
-    try {
-      const output = await session.prompt(prompt);
-      const json = output.slice(output.indexOf("["), output.lastIndexOf("]") + 1);
-      const ranked = JSON.parse(json);
-      const map = new Map(items.map((item) => [item.videoId, item]));
-      const result = [];
-      for (const entry of ranked) {
-        const item = map.get(entry.id);
-        if (item && !result.includes(item)) result.push({ ...item, reason: String(entry.reason || item.reason).slice(0, 90) });
-      }
-      for (const item of items) if (!result.some((x) => x.videoId === item.videoId)) result.push(item);
-      return result;
-    } catch (_) {
-      return items;
-    }
   }
 
   const shell = document.createElement("div");
@@ -190,12 +139,13 @@
         <section class="mm-controls" hidden>
           <label><span>Safe <em>Adventure</em> Weird</span><input name="adventure" type="range" min="0" max="100" value="68"></label>
           <label><span>Familiar <em>Artist novelty</em> New</span><input name="familiarity" type="range" min="0" max="100" value="72"></label>
+          <label><span>Deep cuts <em>Popularity</em> Big hits</span><input name="popularity" type="range" min="0" max="100" value="50"></label>
           <button class="mm-refresh" aria-label="Refresh recommendations">Remix picks</button>
         </section>
         <section class="mm-status" hidden><span class="mm-spinner"></span><strong>Mapping your taste graph…</strong><small>Sampling distant corners of this playlist</small></section>
         <section class="mm-results" hidden><div class="mm-result-head"><span class="mm-count"></span><span class="mm-engine"></span></div><div class="mm-list"></div></section>
       </div>
-      <footer><button class="mm-privacy" aria-describedby="mm-privacy-tip">Private by design<span id="mm-privacy-tip" role="tooltip">No analytics or remote server. Playlist analysis and learning stay in this browser; optional Chrome AI runs on-device.</span></button><span>Runs inside YouTube Music</span></footer>
+      <footer><button class="mm-privacy" aria-describedby="mm-privacy-tip">Private by design<span id="mm-privacy-tip" role="tooltip">No analytics or remote server. Playlist analysis and preference learning stay in this browser.</span></button><span>Runs inside YouTube Music</span></footer>
     </aside>`;
   document.documentElement.appendChild(shell);
 
@@ -225,6 +175,7 @@
     return {
       adventure: Number($('input[name="adventure"]').value),
       familiarity: 100 - Number($('input[name="familiarity"]').value),
+      popularity: Number($('input[name="popularity"]').value),
       diversity: 84,
       limit: 14,
       variation: state.variation,
@@ -244,7 +195,8 @@
     chrome.storage.local.set({ musemintFeedback: state.feedback }).catch(() => {});
   }
 
-  function stopPreview() {
+  async function stopPreview(resumePlayer = true) {
+    const shouldResume = resumePlayer && state.preview.resumePlayer;
     clearTimeout(state.preview.timer);
     state.preview.frame?.remove();
     if (state.preview.button) {
@@ -252,34 +204,77 @@
       state.preview.button.innerHTML = "▶";
       state.preview.button.setAttribute("aria-label", "Play 20-second preview");
     }
-    state.preview = { videoId: "", frame: null, timer: 0, button: null };
+    state.preview = { videoId: "", frame: null, timer: 0, button: null, resumePlayer: false };
+    if (shouldResume) bridge("previewStop", { shouldResume: true }, 5000).catch(() => {});
   }
 
-  function togglePreview(track, button) {
-    if (state.preview.videoId === track.videoId) return stopPreview();
-    stopPreview();
+  async function togglePreview(track, button) {
+    if (state.preview.videoId === track.videoId) return stopPreview(true);
+    const resumePlayer = state.preview.resumePlayer;
+    await stopPreview(false);
+    let playerState = { wasPlaying: false };
+    try { playerState = await bridge("previewStart", {}, 5000); } catch (_) {}
+    const window = Core.previewWindow(track.duration);
     const frame = document.createElement("iframe");
     frame.className = "mm-preview-frame";
     frame.title = `Preview of ${track.title}`;
     frame.allow = "autoplay";
-    frame.src = `https://www.youtube.com/embed/${encodeURIComponent(track.videoId)}?autoplay=1&controls=0&start=20&end=40&playsinline=1`;
+    frame.src = `https://www.youtube.com/embed/${encodeURIComponent(track.videoId)}?autoplay=1&controls=0&start=${window.start}&end=${window.end}&playsinline=1`;
     document.body.appendChild(frame);
     button.classList.add("is-playing");
     button.innerHTML = "■";
     button.setAttribute("aria-label", `Stop preview of ${track.title}`);
-    state.preview = { videoId: track.videoId, frame, button, timer: setTimeout(stopPreview, 20000) };
+    state.preview = {
+      videoId: track.videoId,
+      frame,
+      button,
+      resumePlayer: resumePlayer || playerState.wasPlaying,
+      timer: setTimeout(() => stopPreview(true), 20000)
+    };
   }
 
-  function vote(track, value) {
+  function recordFeedback(track, value) {
     const current = Number(state.feedback.tracks[track.videoId] || 0);
-    const next = current === value ? 0 : value;
+    const next = value < 0 && current === value ? 0 : value;
     state.feedback.tracks[track.videoId] = next;
     const artistKey = Core.key(track.artist);
     const delta = next - current;
     state.feedback.artists[artistKey] = Math.max(-5, Math.min(5, Number(state.feedback.artists[artistKey] || 0) + delta));
     saveFeedback();
+  }
+
+  function dislikeTrack(track) {
+    recordFeedback(track, -1);
     state.recommendations = Core.recommend(state.candidates, state.tracks, options());
     render();
+  }
+
+  function syncVisiblePlaylist(track, added) {
+    const existing = document.querySelector(`.mm-playlist-added-row[data-video-id="${CSS.escape(track.videoId)}"]`);
+    if (!added) { existing?.remove(); return; }
+    if (existing) return;
+    const firstRow = document.querySelector("ytmusic-responsive-list-item-renderer");
+    const container = document.querySelector("ytmusic-playlist-shelf-renderer #contents")
+      || document.querySelector("ytmusic-player-queue #contents")
+      || firstRow?.closest("ytmusic-playlist-shelf-renderer")?.querySelector("#contents");
+    if (!container) return;
+    const row = document.createElement("div");
+    row.className = "mm-playlist-added-row";
+    row.dataset.videoId = track.videoId;
+    const image = document.createElement("img");
+    image.alt = "";
+    if (track.thumbnail) image.src = track.thumbnail;
+    const copy = document.createElement("div");
+    const title = document.createElement("strong");
+    title.textContent = track.title;
+    const artist = document.createElement("span");
+    artist.textContent = `${track.artist} · Added by MuseMint`;
+    copy.append(title, artist);
+    const badge = document.createElement("span");
+    badge.className = "mm-playlist-added-badge";
+    badge.textContent = "Added";
+    row.append(image, copy, badge);
+    container.appendChild(row);
   }
 
   function createTrackCard(track, index) {
@@ -306,25 +301,19 @@
     preview.innerHTML = "▶";
     preview.setAttribute("aria-label", `Play 20-second preview of ${track.title}`);
     preview.addEventListener("click", () => togglePreview(track, preview));
-    const like = document.createElement("button");
-    like.className = "mm-vote mm-like";
-    like.textContent = "↑";
-    like.classList.toggle("is-active", state.feedback.tracks[track.videoId] === 1);
-    like.setAttribute("aria-label", `Like ${track.title}; improve similar recommendations`);
-    like.addEventListener("click", () => vote(track, 1));
     const dislike = document.createElement("button");
     dislike.className = "mm-vote mm-dislike";
     dislike.textContent = "↓";
     dislike.classList.toggle("is-active", state.feedback.tracks[track.videoId] === -1);
     dislike.setAttribute("aria-label", `Dislike ${track.title}; hide it and reduce similar recommendations`);
-    dislike.addEventListener("click", () => vote(track, -1));
+    dislike.addEventListener("click", () => dislikeTrack(track));
     const add = document.createElement("button");
     add.className = "mm-add";
     add.setAttribute("aria-label", `Add ${track.title} to playlist`);
     add.innerHTML = `<span>+</span><em>Add</em>`;
     if (state.added.has(track.videoId)) { add.classList.add("is-added"); add.innerHTML = `<span>✓</span><em>Added</em>`; }
-    add.addEventListener("click", () => addTrack(track, add));
-    actions.append(preview, like, dislike, add);
+    add.addEventListener("click", () => togglePlaylistTrack(track, add));
+    actions.append(preview, dislike, add);
     const dismiss = document.createElement("button");
     dismiss.className = "mm-dismiss";
     dismiss.textContent = "×";
@@ -347,22 +336,41 @@
     if (state.preview.frame) stopPreview();
     list.replaceChildren();
     state.recommendations.filter((x) => !state.rejected.has(x.videoId)).forEach((track, i) => list.appendChild(createTrackCard(track, i)));
-    $(".mm-engine").textContent = state.aiStatus;
+    $(".mm-engine").textContent = "Taste graph";
     updateCount();
   }
 
-  async function addTrack(track, button) {
-    if (button.disabled || state.added.has(track.videoId)) return;
+  async function togglePlaylistTrack(track, button) {
+    if (button.disabled) return;
     button.disabled = true;
     button.classList.add("is-working");
-    button.querySelector("em").textContent = "Adding";
+    const removing = state.added.has(track.videoId);
+    button.querySelector("em").textContent = removing ? "Removing" : "Adding";
     try {
-      await bridge("add", { playlistId: state.playlistId, videoId: track.videoId });
-      state.added.add(track.videoId);
+      if (removing) {
+        await bridge("remove", { playlistId: state.playlistId, videoId: track.videoId, setVideoId: state.added.get(track.videoId) }, 90000);
+        state.added.delete(track.videoId);
+        state.tracks = state.tracks.filter((item) => item.videoId !== track.videoId);
+        recordFeedback(track, 0);
+        syncVisiblePlaylist(track, false);
+        button.classList.remove("is-working", "is-added", "is-error");
+        button.innerHTML = `<span>+</span><em>Add</em>`;
+        button.title = "Add to playlist";
+        button.setAttribute("aria-label", `Add ${track.title} to playlist`);
+        button.disabled = false;
+        return;
+      }
+      const result = await bridge("add", { playlistId: state.playlistId, videoId: track.videoId }, 90000);
+      state.added.set(track.videoId, result.setVideoId || "");
+      if (!state.tracks.some((item) => item.videoId === track.videoId)) state.tracks.push(track);
+      recordFeedback(track, 1);
+      syncVisiblePlaylist(track, true);
       button.classList.remove("is-working");
       button.classList.add("is-added");
       button.innerHTML = `<span>✓</span><em>Added</em>`;
-      button.title = "Added to playlist";
+      button.title = "Click again to remove from playlist";
+      button.setAttribute("aria-label", `Remove ${track.title} from playlist`);
+      button.disabled = false;
     } catch (error) {
       button.disabled = false;
       button.classList.remove("is-working");
@@ -374,35 +382,39 @@
 
   async function generate() {
     if (state.loading) return;
-    state.playlistId = playlistId();
-    if (!state.playlistId) {
+    const targetPlaylistId = playlistId();
+    state.playlistId = targetPlaylistId;
+    if (!targetPlaylistId) {
       setMessage("Open one of your playlists first — the URL needs a list ID.", true);
       return;
     }
     state.loading = true;
+    const runId = ++state.generationId;
     await feedbackReady;
-    const aiPromise = prepareAI();
     hero.hidden = true;
     controls.hidden = true;
     results.hidden = true;
     status.hidden = false;
     try {
-      state.tracks = await getPlaylistTracks(state.playlistId);
-      if (state.tracks.length < 2) throw new Error("I couldn't read enough tracks. Scroll the playlist once, then retry.");
+      $(".mm-status strong").textContent = "Reading the complete playlist…";
+      const tracks = await getPlaylistTracks(targetPlaylistId);
+      if (runId !== state.generationId) return;
+      state.tracks = tracks;
+      if (state.tracks.length < 2) throw new Error("I couldn't read enough tracks from this playlist. Please retry.");
       const seeds = Core.chooseSeeds(state.tracks, 7);
       $(".mm-status strong").textContent = `Exploring from ${seeds.length} taste anchors…`;
       const settled = await Promise.allSettled(seeds.map((seed) => bridge("neighbors", { videoId: seed.videoId }).then((data) => extractTracks(data, seed.videoId))));
+      if (runId !== state.generationId) return;
       state.candidates = settled.flatMap((result) => result.status === "fulfilled" ? result.value : []);
       let viable = Core.dedupe(state.candidates, state.tracks);
       if (viable.length < 8) {
         $(".mm-status strong").textContent = "Opening a second discovery route…";
         state.candidates.push(...await searchFallback(seeds));
+        if (runId !== state.generationId) return;
         viable = Core.dedupe(state.candidates, state.tracks);
       }
       if (viable.length < 1) throw new Error("No new tracks escaped this playlist. Try Remix picks or a different playlist.");
-      await aiPromise;
-      let ranked = Core.recommend(state.candidates, state.tracks, options());
-      ranked = await aiRerank(ranked, state.tracks);
+      const ranked = Core.recommend(state.candidates, state.tracks, options());
       if (!ranked.length) throw new Error("The discovery pool was empty after duplicate removal. Please retry.");
       state.recommendations = ranked;
       render();
@@ -414,7 +426,7 @@
       status.hidden = true;
       setMessage(error.message || "Something went sideways. Try again.", true);
     } finally {
-      state.loading = false;
+      if (runId === state.generationId) state.loading = false;
     }
   }
 
@@ -434,19 +446,33 @@
   chrome.runtime.onMessage.addListener((message) => { if (message.type === "MUSEMINT_TOGGLE") setOpen(!state.open); });
   const feedbackReady = loadFeedback();
 
-  let previousUrl = location.href;
-  new MutationObserver(() => {
-    if (location.href === previousUrl) return;
-    previousUrl = location.href;
-    state.playlistId = playlistId();
+  let observedPlaylistId = playlistId();
+  state.playlistId = observedPlaylistId;
+  function handleRouteChange() {
+    const nextPlaylistId = playlistId();
+    if (nextPlaylistId === observedPlaylistId) return;
+    const shouldRegenerate = state.recommendations.length > 0 || state.loading;
+    observedPlaylistId = nextPlaylistId;
+    state.generationId += 1;
+    state.loading = false;
+    clearTimeout(state.routeTimer);
+    stopPreview(true);
+    state.playlistId = nextPlaylistId;
     state.tracks = [];
     state.candidates = [];
     state.recommendations = [];
+    state.added.clear();
+    document.querySelectorAll(".mm-playlist-added-row").forEach((row) => row.remove());
     state.rejected.clear();
     hero.hidden = false;
     controls.hidden = true;
     results.hidden = true;
     status.hidden = true;
-    setMessage(state.playlistId ? "Ready to map this playlist." : "Open a YouTube Music playlist to begin.");
-  }).observe(document.body, { childList: true, subtree: true });
+    setMessage(nextPlaylistId ? "Playlist changed — mapping its taste next." : "Open a YouTube Music playlist to begin.");
+    if (shouldRegenerate && nextPlaylistId) state.routeTimer = setTimeout(generate, 650);
+  }
+  document.addEventListener("yt-navigate-finish", handleRouteChange);
+  window.addEventListener("popstate", handleRouteChange);
+  new MutationObserver(handleRouteChange).observe(document.body, { childList: true, subtree: true });
+  setInterval(handleRouteChange, 1000);
 })();

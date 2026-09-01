@@ -19,6 +19,14 @@ test("dedupe removes playlist tracks, duplicate IDs, and normalized title/artist
   assert.equal(result[0].videoId, "b");
 });
 
+test("dedupe blocks an existing playlist song even when YouTube returns another video ID", () => {
+  const result = Core.dedupe([
+    { videoId: "alternate-upload", title: "  RED moon! ", artist: "ATLAS" },
+    { videoId: "new", title: "Actually New", artist: "Else" }
+  ], seeds);
+  assert.deepEqual(result.map((track) => track.videoId), ["new"]);
+});
+
 test("chooseSeeds spans the playlist and avoids artist monoculture", () => {
   const tracks = Array.from({ length: 20 }, (_, i) => ({ videoId: String(i), title: `T${i}`, artist: i < 10 ? "Same" : `A${i}` }));
   const chosen = Core.chooseSeeds(tracks, 5);
@@ -71,4 +79,21 @@ test("remix variation changes ordering without changing the candidate set", () =
   assert.notDeepEqual(first, second);
   assert.equal(new Set(first).size, first.length);
   assert.equal(new Set(second).size, second.length);
+});
+
+test("popularity control moves deep cuts and big hits in opposite directions", () => {
+  const pool = [
+    { videoId: "hit", title: "Hit", artist: "One", sourceRank: 1, seedId: "s1" },
+    { videoId: "deep", title: "Deep", artist: "Two", sourceRank: 45, seedId: "s1" }
+  ];
+  const hits = Core.recommend(pool, seeds, { limit: 2, popularity: 100, adventure: 0 });
+  const deep = Core.recommend(pool, seeds, { limit: 2, popularity: 0, adventure: 100 });
+  assert.equal(hits[0].videoId, "hit");
+  assert.equal(deep[0].videoId, "deep");
+});
+
+test("previewWindow targets the chorus region and stays inside the track", () => {
+  assert.deepEqual(Core.previewWindow("4:00"), { start: 91, end: 111 });
+  assert.deepEqual(Core.previewWindow("1:00"), { start: 30, end: 50 });
+  assert.deepEqual(Core.previewWindow("unknown"), { start: 15, end: 35 });
 });

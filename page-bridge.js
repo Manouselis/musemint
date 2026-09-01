@@ -110,14 +110,49 @@
     return { initial, expansions: settled.filter((x) => x.status === "fulfilled").map((x) => x.value) };
   }
 
+  async function fullPlaylist(playlistId) {
+    const initial = await api("browse", { browseId: `VL${playlistId}` });
+    return MuseMintPagination.collectAll(initial, (continuation) => api("browse", { continuation }), 100);
+  }
+
+  function playerCommand(type, shouldResume = false) {
+    const player = document.querySelector("#movie_player");
+    if (!player) return { wasPlaying: false };
+    if (type === "previewStart") {
+      const wasPlaying = player.getPlayerState?.() === 1;
+      if (wasPlaying) player.pauseVideo?.();
+      return { wasPlaying };
+    }
+    if (type === "previewStop" && shouldResume) player.playVideo?.();
+    return { wasPlaying: false };
+  }
+
   async function handle(type, payload) {
     if (type === "neighbors") return neighbors(payload);
     if (type === "search") return api("search", { query: payload.query });
-    if (type === "playlist") return api("browse", { browseId: `VL${payload.playlistId}` });
+    if (type === "playlist") return fullPlaylist(payload.playlistId);
+    if (type === "previewStart" || type === "previewStop") return playerCommand(type, payload.shouldResume);
     if (type === "add") {
-      return api("browse/edit_playlist", {
+      const response = await api("browse/edit_playlist", {
         playlistId: payload.playlistId,
         actions: [{ action: "ACTION_ADD_VIDEO", addedVideoId: payload.videoId }]
+      });
+      let setVideoId = MuseMintPagination.setVideoIdFrom(response, payload.videoId);
+      if (!setVideoId) {
+        const playlist = await fullPlaylist(payload.playlistId);
+        setVideoId = MuseMintPagination.setVideoIdFrom(playlist, payload.videoId);
+      }
+      return { response, setVideoId };
+    }
+    if (type === "remove") {
+      let setVideoId = payload.setVideoId;
+      if (!setVideoId && payload.videoId) {
+        setVideoId = MuseMintPagination.setVideoIdFrom(await fullPlaylist(payload.playlistId), payload.videoId);
+      }
+      if (!setVideoId) throw new Error("YouTube Music did not expose this playlist membership. Refresh once and retry.");
+      return api("browse/edit_playlist", {
+        playlistId: payload.playlistId,
+        actions: [{ action: "ACTION_REMOVE_VIDEO", setVideoId, removedVideoId: payload.videoId }]
       });
     }
     throw new Error("Unknown MuseMint request.");
