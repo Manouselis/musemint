@@ -12,6 +12,7 @@
 }
 
 #musemint-root, #musemint-root * { box-sizing: border-box; }
+#musemint-root [hidden] { display: none !important; }
 #musemint-root button, #musemint-root input { font: inherit; }
 
 .mm-launch {

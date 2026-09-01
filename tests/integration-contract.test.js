@@ -42,3 +42,8 @@ test("full playlist loading does not fall back to visible DOM rows", () => {
   assert.doesNotMatch(content, /scrapeVisibleTracks/);
   assert.match(bridge, /MuseMintPagination\.collectAll/);
 });
+
+test("hidden panel sections cannot occupy layout space", () => {
+  const css = fs.readFileSync(path.join(root, "content.css"), "utf8");
+  assert.match(css, /#musemint-root \[hidden\] \{ display: none !important; \}/);
+});
