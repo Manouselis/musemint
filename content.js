@@ -9,8 +9,11 @@
     loading: false,
     playlistId: "",
     tracks: [],
+    candidatePool: [],
     candidates: [],
     recommendations: [],
+    membership: new Map(),
+    shownTitles: new Set(),
     added: new Map(),
     playlistOptions: new Map(),
     playlistOptionRequests: new Map(),
@@ -150,6 +153,14 @@
     };
   }
 
+  function recommendationTitle(track) {
+    return Core.titleIdentity(track.title);
+  }
+
+  function rememberShownRecommendations() {
+    for (const track of state.recommendations) state.shownTitles.add(recommendationTitle(track));
+  }
+
   async function loadFeedback() {
     try {
       const stored = await chrome.storage.local.get("musemintFeedback");
@@ -223,6 +234,7 @@
     recordFeedback(track, -1);
     state.recommendations = Core.recommend(state.candidates, state.tracks, options());
     render();
+    rememberShownRecommendations();
   }
 
   function syncVisiblePlaylist(track, added) {
@@ -481,6 +493,7 @@
       if (removing) {
         await bridge("remove", { playlistId: state.playlistId, videoId: track.videoId, setVideoId: state.added.get(track.videoId) }, 90000);
         state.added.delete(track.videoId);
+        state.membership.set(track.videoId, "new");
         setCachedPlaylistSelection(track.videoId, state.playlistId, false);
         state.tracks = state.tracks.filter((item) => item.videoId !== track.videoId);
         recordFeedback(track, 0);
@@ -496,6 +509,7 @@
       }
       const result = await bridge("add", { playlistId: state.playlistId, videoId: track.videoId }, 90000);
       state.added.set(track.videoId, result.setVideoId || "");
+      state.membership.set(track.videoId, "existing");
       setCachedPlaylistSelection(track.videoId, state.playlistId, true);
       if (!state.tracks.some((item) => item.videoId === track.videoId)) state.tracks.push(track);
       recordFeedback(track, 1);
@@ -517,6 +531,28 @@
     }
   }
 
+  async function verifyNewCandidates(shortlist, targetPlaylistId, runId) {
+    const unknown = shortlist.filter((track) => !state.membership.has(track.videoId));
+    if (unknown.length) {
+      const membership = await bridge("membership", {
+        playlistId: targetPlaylistId,
+        videoIds: unknown.map((track) => track.videoId)
+      }, 60000);
+      if (runId !== state.generationId) return null;
+      const checkedIds = new Set(membership.checkedVideoIds || []);
+      const existingIds = new Set(membership.existingVideoIds || []);
+      for (const track of unknown) {
+        if (existingIds.has(track.videoId)) state.membership.set(track.videoId, "existing");
+        else if (checkedIds.has(track.videoId)) state.membership.set(track.videoId, "new");
+      }
+      for (const track of unknown) {
+        if (state.membership.get(track.videoId) === "existing"
+          && !state.tracks.some((item) => item.videoId === track.videoId)) state.tracks.push(track);
+      }
+    }
+    return shortlist.filter((track) => state.membership.get(track.videoId) === "new");
+  }
+
   async function generate() {
     if (state.loading) return;
     const targetPlaylistId = playlistId();
@@ -527,6 +563,10 @@
     }
     state.loading = true;
     const runId = ++state.generationId;
+    state.candidatePool = [];
+    state.candidates = [];
+    state.membership.clear();
+    state.shownTitles.clear();
     await feedbackReady;
     hero.hidden = true;
     controls.hidden = true;
@@ -542,33 +582,26 @@
       $(".mm-status strong").textContent = `Exploring from ${seeds.length} taste anchors…`;
       const settled = await Promise.allSettled(seeds.map((seed) => bridge("neighbors", { videoId: seed.videoId }).then((data) => extractTracks(data, seed.videoId))));
       if (runId !== state.generationId) return;
-      state.candidates = settled.flatMap((result) => result.status === "fulfilled" ? result.value : []);
-      let viable = Core.dedupe(state.candidates, state.tracks);
+      state.candidatePool = settled.flatMap((result) => result.status === "fulfilled" ? result.value : []);
+      let viable = Core.dedupe(state.candidatePool, state.tracks);
       if (viable.length < 8) {
         $(".mm-status strong").textContent = "Opening a second discovery route…";
-        state.candidates.push(...await searchFallback(seeds));
+        state.candidatePool.push(...await searchFallback(seeds));
         if (runId !== state.generationId) return;
-        viable = Core.dedupe(state.candidates, state.tracks);
+        viable = Core.dedupe(state.candidatePool, state.tracks);
       }
       if (viable.length < 1) throw new Error("No new tracks escaped this playlist. Try Remix picks or a different playlist.");
-      const shortlist = Core.recommend(state.candidates, state.tracks, { ...options(), limit: 30 });
+      const shortlist = Core.recommend(state.candidatePool, state.tracks, { ...options(), limit: 30 });
       $(".mm-status strong").textContent = "Checking every pick against this playlist…";
-      const membership = await bridge("membership", {
-        playlistId: targetPlaylistId,
-        videoIds: shortlist.map((track) => track.videoId)
-      }, 60000);
-      if (runId !== state.generationId) return;
-      const checkedIds = new Set(membership.checkedVideoIds || []);
-      const existingIds = new Set(membership.existingVideoIds || []);
-      if (!checkedIds.size) throw new Error("I couldn't verify that these songs are new. Please retry in a moment.");
-      for (const track of shortlist) {
-        if (existingIds.has(track.videoId) && !state.tracks.some((item) => item.videoId === track.videoId)) state.tracks.push(track);
-      }
-      state.candidates = shortlist.filter((track) => checkedIds.has(track.videoId) && !existingIds.has(track.videoId));
+      const verified = await verifyNewCandidates(shortlist, targetPlaylistId, runId);
+      if (!verified) return;
+      if (!verified.length) throw new Error("I couldn't verify that these songs are new. Please retry in a moment.");
+      state.candidates = verified;
       const ranked = Core.recommend(state.candidates, state.tracks, options());
       if (!ranked.length) throw new Error("The discovery pool was empty after duplicate removal. Please retry.");
       state.recommendations = ranked;
       render();
+      rememberShownRecommendations();
       status.hidden = true;
       controls.hidden = false;
       results.hidden = false;
@@ -581,17 +614,58 @@
     }
   }
 
-  function rerank(isRemix = false) {
+  function rerank() {
     if (!state.candidates.length) return generate();
-    if (isRemix) state.variation += 1;
     state.recommendations = Core.recommend(state.candidates, state.tracks, options());
     render();
+    rememberShownRecommendations();
+  }
+
+  async function remixPicks() {
+    if (state.loading) return;
+    if (!state.candidatePool.length) return generate();
+    state.loading = true;
+    const runId = ++state.generationId;
+    const refresh = $(".mm-refresh");
+    refresh.disabled = true;
+    refresh.textContent = "Finding fresh picks…";
+    refresh.title = "";
+    results.hidden = true;
+    status.hidden = false;
+    $(".mm-status strong").textContent = "Taking a different route through your taste graph…";
+    try {
+      state.variation += 1;
+      const unseenPool = Core.excludeShownTitles(state.candidatePool, state.shownTitles);
+      const shortlist = Core.recommend(unseenPool, state.tracks, { ...options(), limit: 30 });
+      if (!shortlist.length) throw new Error("You've explored every fresh title in this discovery pool.");
+      $(".mm-status strong").textContent = "Verifying the next batch is genuinely new…";
+      const verified = await verifyNewCandidates(shortlist, state.playlistId, runId);
+      if (!verified) return;
+      const ranked = Core.recommend(verified, state.tracks, options());
+      if (!ranked.length) throw new Error("No more verified-new titles are available in this discovery pool.");
+      state.candidates = verified;
+      state.recommendations = ranked;
+      render();
+      rememberShownRecommendations();
+      $(".mm-engine").textContent = "Fresh batch";
+    } catch (error) {
+      refresh.title = error.message || "No fresh batch was available.";
+      $(".mm-engine").textContent = "No unseen batch found";
+    } finally {
+      if (runId === state.generationId) {
+        state.loading = false;
+        status.hidden = true;
+        results.hidden = false;
+        refresh.disabled = false;
+        refresh.textContent = "Remix picks";
+      }
+    }
   }
 
   launch.addEventListener("click", () => setOpen(true));
   $(".mm-close").addEventListener("click", () => setOpen(false));
   $(".mm-generate").addEventListener("click", generate);
-  $(".mm-refresh").addEventListener("click", () => rerank(true));
+  $(".mm-refresh").addEventListener("click", remixPicks);
   shell.querySelectorAll('input[type="range"]').forEach((input) => input.addEventListener("change", rerank));
   document.addEventListener("click", (event) => {
     if (!event.target.closest?.(".mm-add-wrap")) closePlaylistPickers();
@@ -621,8 +695,11 @@
     stopPreview(true);
     state.playlistId = nextPlaylistId;
     state.tracks = [];
+    state.candidatePool = [];
     state.candidates = [];
     state.recommendations = [];
+    state.membership.clear();
+    state.shownTitles.clear();
     state.added.clear();
     state.playlistOptions.clear();
     state.playlistOptionRequests.clear();

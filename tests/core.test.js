@@ -135,6 +135,16 @@ test("remix variation changes ordering without changing the candidate set", () =
   assert.equal(new Set(second).size, second.length);
 });
 
+test("excludeShownTitles guarantees a remix batch has new normalized titles", () => {
+  const pool = [
+    { videoId: "a", title: "Night Drive (Official Audio)", artist: "One" },
+    { videoId: "b", title: "New Horizon", artist: "Two" },
+    { videoId: "c", title: "Glass Roads", artist: "Three" }
+  ];
+  const result = Core.excludeShownTitles(pool, new Set(["Night Drive", "Glass Roads"]));
+  assert.deepEqual(result.map((track) => track.videoId), ["b"]);
+});
+
 test("popularity control moves deep cuts and big hits in opposite directions", () => {
   const pool = [
     { videoId: "hit", title: "Hit", artist: "One", sourceRank: 1, seedId: "s1" },

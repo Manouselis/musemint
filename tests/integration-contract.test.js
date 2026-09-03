@@ -88,9 +88,17 @@ test("membership verification fails closed and removes unchecked candidates", ()
   assert.match(bridge, /checkedVideoIds/);
   assert.match(bridge, /failedVideoIds/);
   assert.match(bridge, /playlistOptionState/);
-  assert.match(content, /if \(!checkedIds\.size\) throw/);
-  assert.match(content, /state\.candidates = shortlist\.filter/);
-  assert.match(content, /checkedIds\.has\(track\.videoId\) && !existingIds\.has/);
+  assert.match(content, /state\.membership\.set\(track\.videoId, "new"\)/);
+  assert.match(content, /return shortlist\.filter\(\(track\) => state\.membership\.get\(track\.videoId\) === "new"\)/);
+  assert.match(content, /if \(!verified\.length\) throw/);
+});
+
+test("Remix picks replaces the list with previously unseen verified titles", () => {
+  assert.match(content, /shownTitles: new Set/);
+  assert.match(content, /Core\.excludeShownTitles\(state\.candidatePool, state\.shownTitles\)/);
+  assert.match(content, /const verified = await verifyNewCandidates\(shortlist/);
+  assert.match(content, /rememberShownRecommendations\(\)/);
+  assert.match(content, /addEventListener\("click", remixPicks\)/);
 });
 
 test("playlist chooser works by hover, focus, and an explicit keyboard button", () => {

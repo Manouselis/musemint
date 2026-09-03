@@ -44,6 +44,11 @@
     for (const word of smaller) if (larger.has(word)) shared++;
     return shared >= Math.min(2, smaller.size) && shared / Math.max(1, smaller.size) >= 0.75;
   }
+
+  function excludeShownTitles(candidates, shownTitles = []) {
+    const seen = new Set([...shownTitles].map((item) => titleIdentity(typeof item === "string" ? item : item?.title)));
+    return candidates.filter((track) => !seen.has(titleIdentity(track.title)));
+  }
   const sigmoid = (x) => 1 / (1 + Math.exp(-x));
   function hash(value) {
     let result = 2166136261;
@@ -308,5 +313,5 @@
     return { start, end: Math.min(seconds - 2, start + 20) };
   }
 
-  return { artistIdentity, artistsCompatible, canonicalTrack, chooseSeeds, dedupe, hash, key, parseRendererTrack, previewWindow, recommend, similarity, titleIdentity };
+  return { artistIdentity, artistsCompatible, canonicalTrack, chooseSeeds, dedupe, excludeShownTitles, hash, key, parseRendererTrack, previewWindow, recommend, similarity, titleIdentity };
 });
