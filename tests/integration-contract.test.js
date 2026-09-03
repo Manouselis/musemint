@@ -37,7 +37,15 @@ test("preview coordinates with the main player and uses a calculated window", ()
   assert.match(bridge, /playVideo/);
 });
 
-test("full playlist loading does not fall back to visible DOM rows", () => {
+test("preview inherits the current player volume and mute state", () => {
+  assert.match(bridge, /getVolume/);
+  assert.match(bridge, /isMuted/);
+  assert.match(content, /enablejsapi=1/);
+  assert.match(content, /command\("setVolume"/);
+  assert.match(content, /playerState\.muted \? "mute" : "unMute"/);
+});
+
+test("primary full-playlist loading does not depend on isolated DOM scraping", () => {
   assert.match(content, /bridge\("playlist"/);
   assert.doesNotMatch(content, /scrapeVisibleTracks/);
   assert.match(bridge, /MuseMintPagination\.collectAll/);
@@ -46,4 +54,30 @@ test("full playlist loading does not fall back to visible DOM rows", () => {
 test("hidden panel sections cannot occupy layout space", () => {
   const css = fs.readFileSync(path.join(root, "content.css"), "utf8");
   assert.match(css, /#musemint-root \[hidden\] \{ display: none !important; \}/);
+});
+
+test("a one-track playlist is a valid discovery seed", () => {
+  assert.match(content, /state\.tracks\.length < 1/);
+  assert.doesNotMatch(content, /state\.tracks\.length < 2/);
+});
+
+test("playlist loading preserves brand identity and has independent fallbacks", () => {
+  assert.match(bridge, /onBehalfOfUser/);
+  assert.match(bridge, /api\("next"/);
+  assert.match(bridge, /pagePlaylistSnapshot/);
+  assert.match(bridge, /source: "browse"/);
+  assert.match(bridge, /source: "queue"/);
+  assert.match(bridge, /source: "page"/);
+});
+
+test("playlist mutations strip browse-only VL prefixes", () => {
+  assert.match(bridge, /replace\(\/\^VL\//);
+});
+
+test("shortlisted recommendations are verified against YouTube playlist membership", () => {
+  assert.match(bridge, /playlist\/get_add_to_playlist/);
+  assert.match(bridge, /MuseMintPagination\.playlistOptionSelected/);
+  assert.match(content, /bridge\("membership"/);
+  assert.match(content, /limit: 30/);
+  assert.match(content, /existingIds\.has\(track\.videoId\)/);
 });

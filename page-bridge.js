@@ -8,13 +8,17 @@
   function config() {
     const get = (name) => window.ytcfg?.get?.(name);
     const context = structuredClone(get("INNERTUBE_CONTEXT") || {});
+    const delegatedSessionId = get("DELEGATED_SESSION_ID") || "";
+    if (delegatedSessionId) {
+      context.user = { ...(context.user || {}), onBehalfOfUser: context.user?.onBehalfOfUser || delegatedSessionId };
+    }
     return {
       apiKey: get("INNERTUBE_API_KEY"),
       context,
       clientName: get("INNERTUBE_CLIENT_NAME") || context?.client?.clientName || "WEB_REMIX",
       clientVersion: get("INNERTUBE_CLIENT_VERSION") || context?.client?.clientVersion,
       sessionIndex: String(get("SESSION_INDEX") ?? 0),
-      delegatedSessionId: get("DELEGATED_SESSION_ID") || ""
+      delegatedSessionId
     };
   }
 
@@ -111,30 +115,102 @@
   }
 
   async function fullPlaylist(playlistId) {
-    const initial = await api("browse", { browseId: `VL${playlistId}` });
-    return MuseMintPagination.collectAll(initial, (continuation) => api("browse", { continuation }), 100);
+    const rawId = String(playlistId || "");
+    const cleanId = rawId.startsWith("VL") ? rawId.slice(2) : rawId;
+    const browseId = `VL${cleanId}`;
+    const initial = await api("browse", { browseId });
+    const browse = await MuseMintPagination.collectAll(initial, (continuation) => api("browse", { continuation }), 100);
+    if (countTrackRows(browse)) return { ...browse, source: "browse" };
+
+    try {
+      const queueInitial = await api("next", {
+        playlistId: cleanId,
+        isAudioOnly: true,
+        enablePersistentPlaylistPanel: true
+      });
+      const queue = await MuseMintPagination.collectAll(queueInitial, (continuation) => api("next", { continuation }), 100);
+      if (countTrackRows(queue)) return { ...queue, source: "queue" };
+    } catch (_) {}
+
+    const snapshot = pagePlaylistSnapshot();
+    if (snapshot.length) {
+      return { pages: [{ pagePlaylistSnapshot: snapshot }], complete: true, pageCount: 1, source: "page" };
+    }
+    return { ...browse, source: "browse", diagnostics: { rendererRows: 0 } };
+  }
+
+  function countTrackRows(payload) {
+    let count = 0;
+    const seen = new WeakSet();
+    function visit(node, depth = 0) {
+      if (!node || typeof node !== "object" || depth > 35 || seen.has(node)) return;
+      seen.add(node);
+      if (node.musicResponsiveListItemRenderer || node.playlistPanelVideoRenderer) count++;
+      for (const value of Object.values(node)) {
+        if (Array.isArray(value)) value.forEach((item) => visit(item, depth + 1));
+        else visit(value, depth + 1);
+      }
+    }
+    visit(payload);
+    return count;
+  }
+
+  function pagePlaylistSnapshot() {
+    const rows = [];
+    const selector = "ytmusic-playlist-shelf-renderer ytmusic-responsive-list-item-renderer, ytmusic-player-queue ytmusic-playlist-panel-video-renderer";
+    for (const element of document.querySelectorAll(selector)) {
+      const data = element.data || element.__data?.data;
+      if (!data || typeof data !== "object") continue;
+      try {
+        rows.push(element.localName === "ytmusic-playlist-panel-video-renderer"
+          ? { playlistPanelVideoRenderer: structuredClone(data) }
+          : { musicResponsiveListItemRenderer: structuredClone(data) });
+      } catch (_) {}
+    }
+    return rows;
+  }
+
+  async function existingPlaylistVideos(playlistId, videoIds = []) {
+    const ids = [...new Set(videoIds.filter(Boolean))].slice(0, 30);
+    const existingVideoIds = [];
+    let cursor = 0;
+    async function worker() {
+      while (cursor < ids.length) {
+        const videoId = ids[cursor++];
+        try {
+          const response = await api("playlist/get_add_to_playlist", { videoIds: [videoId] });
+          if (MuseMintPagination.playlistOptionSelected(response, playlistId)) existingVideoIds.push(videoId);
+        } catch (_) {}
+      }
+    }
+    await Promise.all(Array.from({ length: Math.min(4, ids.length) }, worker));
+    return { existingVideoIds, checked: ids.length };
   }
 
   function playerCommand(type, shouldResume = false) {
     const player = document.querySelector("#movie_player");
-    if (!player) return { wasPlaying: false };
+    if (!player) return { wasPlaying: false, volume: 50, muted: false };
     if (type === "previewStart") {
       const wasPlaying = player.getPlayerState?.() === 1;
+      const volume = Math.max(0, Math.min(100, Number(player.getVolume?.() ?? 50)));
+      const muted = Boolean(player.isMuted?.());
       if (wasPlaying) player.pauseVideo?.();
-      return { wasPlaying };
+      return { wasPlaying, volume, muted };
     }
     if (type === "previewStop" && shouldResume) player.playVideo?.();
-    return { wasPlaying: false };
+    return { wasPlaying: false, volume: 50, muted: false };
   }
 
   async function handle(type, payload) {
     if (type === "neighbors") return neighbors(payload);
     if (type === "search") return api("search", { query: payload.query });
     if (type === "playlist") return fullPlaylist(payload.playlistId);
+    if (type === "membership") return existingPlaylistVideos(payload.playlistId, payload.videoIds);
     if (type === "previewStart" || type === "previewStop") return playerCommand(type, payload.shouldResume);
     if (type === "add") {
+      const playlistId = String(payload.playlistId || "").replace(/^VL/, "");
       const response = await api("browse/edit_playlist", {
-        playlistId: payload.playlistId,
+        playlistId,
         actions: [{ action: "ACTION_ADD_VIDEO", addedVideoId: payload.videoId }]
       });
       let setVideoId = MuseMintPagination.setVideoIdFrom(response, payload.videoId);
@@ -145,13 +221,14 @@
       return { response, setVideoId };
     }
     if (type === "remove") {
+      const playlistId = String(payload.playlistId || "").replace(/^VL/, "");
       let setVideoId = payload.setVideoId;
       if (!setVideoId && payload.videoId) {
         setVideoId = MuseMintPagination.setVideoIdFrom(await fullPlaylist(payload.playlistId), payload.videoId);
       }
       if (!setVideoId) throw new Error("YouTube Music did not expose this playlist membership. Refresh once and retry.");
       return api("browse/edit_playlist", {
-        playlistId: payload.playlistId,
+        playlistId,
         actions: [{ action: "ACTION_REMOVE_VIDEO", setVideoId, removedVideoId: payload.videoId }]
       });
     }

@@ -57,3 +57,36 @@ test("setVideoIdFrom falls back to matching a playlist renderer", () => {
   } } }] };
   assert.equal(Pagination.setVideoIdFrom(response, "song-1"), "set-from-playlist");
 });
+
+test("setVideoIdFrom supports current play-button and menu response fields", () => {
+  const response = { pages: [{ musicResponsiveListItemRenderer: {
+    overlay: { musicItemThumbnailOverlayRenderer: { content: { musicPlayButtonRenderer: {
+      playNavigationEndpoint: { watchEndpoint: { videoId: "song-2", playlistSetVideoId: "set-from-play" } }
+    } } } },
+    menu: { menuRenderer: { items: [{ menuServiceItemRenderer: { serviceEndpoint: { playlistEditEndpoint: {
+      actions: [{ removedVideoId: "song-2", setVideoId: "set-from-menu" }]
+    } } } }] } }
+  } }] };
+  assert.equal(Pagination.setVideoIdFrom(response, "song-2"), "set-from-play");
+});
+
+test("playlistOptionSelected detects every supported selected-state shape", () => {
+  assert.equal(Pagination.playlistOptionSelected({ playlistAddToOptionRenderer: {
+    playlistId: "PLTARGET", containsSelectedVideos: true
+  } }, "PLTARGET"), true);
+  assert.equal(Pagination.playlistOptionSelected({ addToPlaylistItemRenderer: {
+    selected: true, serviceEndpoint: { playlistEditEndpoint: { playlistId: "PLTARGET" } }
+  } }, "VLPLTARGET"), true);
+  assert.equal(Pagination.playlistOptionSelected({ musicResponsiveListItemRenderer: {
+    navigationEndpoint: { browseEndpoint: { browseId: "VLPLTARGET" } },
+    checkboxRenderer: { checkedState: "CHECKBOX_CHECKED_STATE_CHECKED" }
+  } }, "PLTARGET"), true);
+});
+
+test("playlistOptionSelected does not confuse a different or unchecked playlist", () => {
+  const response = { addToPlaylistRenderer: { contents: [
+    { playlistAddToOptionRenderer: { playlistId: "PLOTHER", containsSelectedVideos: true } },
+    { playlistAddToOptionRenderer: { playlistId: "PLTARGET", containsSelectedVideos: false } }
+  ] } };
+  assert.equal(Pagination.playlistOptionSelected(response, "PLTARGET"), false);
+});

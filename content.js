@@ -47,44 +47,8 @@
     result.ok ? request.resolve(result.data) : request.reject(new Error(result.error));
   });
 
-  function textFromRuns(runs = []) {
-    return runs.map((run) => run.text || "").join("").trim();
-  }
-
-  function thumbnailFrom(renderer) {
-    const stack = [renderer];
-    while (stack.length) {
-      const node = stack.shift();
-      if (!node || typeof node !== "object") continue;
-      if (Array.isArray(node.thumbnails) && node.thumbnails.length) return node.thumbnails.at(-1)?.url || "";
-      for (const value of Object.values(node)) if (value && typeof value === "object") stack.push(value);
-    }
-    return "";
-  }
-
   function parseRenderer(renderer, seedId = "") {
-    const data = renderer.musicResponsiveListItemRenderer || renderer.playlistPanelVideoRenderer;
-    if (!data) return null;
-    const videoId = data.playlistItemData?.videoId || data.videoId || data.navigationEndpoint?.watchEndpoint?.videoId;
-    const columns = data.flexColumns || [];
-    const columnRuns = columns.map((column) => column.musicResponsiveListItemFlexColumnRenderer?.text?.runs || []);
-    const titleRuns = columnRuns[0] || data.title?.runs || [];
-    const detailRuns = columnRuns[1] || data.longBylineText?.runs || data.shortBylineText?.runs || [];
-    const artistRun = detailRuns.find((run) => run.navigationEndpoint?.browseEndpoint?.browseEndpointContextSupportedConfigs?.browseEndpointContextMusicConfig?.pageType === "MUSIC_PAGE_TYPE_ARTIST") || detailRuns[0];
-    const albumRun = (columnRuns[2] || []).find((run) => run.text);
-    const duration = data.fixedColumns?.[0]?.musicResponsiveListItemFixedColumnRenderer?.text?.runs?.[0]?.text || data.lengthText?.runs?.[0]?.text || "";
-    if (!videoId || !textFromRuns(titleRuns)) return null;
-    return {
-      videoId,
-      title: textFromRuns(titleRuns),
-      artist: artistRun?.text || "Unknown artist",
-      album: albumRun?.text || "",
-      duration,
-      thumbnail: thumbnailFrom(data),
-      seedId,
-      setVideoId: data.playlistItemData?.playlistSetVideoId || data.playlistSetVideoId || "",
-      isExplicit: JSON.stringify(data.badges || []).includes("EXPLICIT")
-    };
+    return Core.parseRendererTrack(renderer, seedId);
   }
 
   function extractTracks(payload, seedId = "") {
@@ -212,14 +176,23 @@
     if (state.preview.videoId === track.videoId) return stopPreview(true);
     const resumePlayer = state.preview.resumePlayer;
     await stopPreview(false);
-    let playerState = { wasPlaying: false };
+    let playerState = { wasPlaying: false, volume: 50, muted: false };
     try { playerState = await bridge("previewStart", {}, 5000); } catch (_) {}
-    const window = Core.previewWindow(track.duration);
+    const clip = Core.previewWindow(track.duration);
     const frame = document.createElement("iframe");
     frame.className = "mm-preview-frame";
     frame.title = `Preview of ${track.title}`;
     frame.allow = "autoplay";
-    frame.src = `https://www.youtube.com/embed/${encodeURIComponent(track.videoId)}?autoplay=1&controls=0&start=${window.start}&end=${window.end}&playsinline=1`;
+    frame.src = `https://www.youtube.com/embed/${encodeURIComponent(track.videoId)}?autoplay=1&controls=0&enablejsapi=1&origin=${encodeURIComponent(location.origin)}&start=${clip.start}&end=${clip.end}&playsinline=1`;
+    const setVolume = () => {
+      if (!frame.contentWindow) return;
+      const command = (func, args = []) => frame.contentWindow.postMessage(JSON.stringify({ event: "command", func, args }), "https://www.youtube.com");
+      command("setVolume", [Math.max(0, Math.min(100, Number(playerState.volume ?? 50)))]);
+      command(playerState.muted ? "mute" : "unMute");
+    };
+    frame.addEventListener("load", () => {
+      for (const delay of [0, 350, 1000]) setTimeout(() => { if (frame.isConnected) setVolume(); }, delay);
+    }, { once: true });
     document.body.appendChild(frame);
     button.classList.add("is-playing");
     button.innerHTML = "■";
@@ -400,7 +373,7 @@
       const tracks = await getPlaylistTracks(targetPlaylistId);
       if (runId !== state.generationId) return;
       state.tracks = tracks;
-      if (state.tracks.length < 2) throw new Error("I couldn't read enough tracks from this playlist. Please retry.");
+      if (state.tracks.length < 1) throw new Error("I couldn't read any playable tracks from this playlist. Please retry.");
       const seeds = Core.chooseSeeds(state.tracks, 7);
       $(".mm-status strong").textContent = `Exploring from ${seeds.length} taste anchors…`;
       const settled = await Promise.allSettled(seeds.map((seed) => bridge("neighbors", { videoId: seed.videoId }).then((data) => extractTracks(data, seed.videoId))));
@@ -414,6 +387,19 @@
         viable = Core.dedupe(state.candidates, state.tracks);
       }
       if (viable.length < 1) throw new Error("No new tracks escaped this playlist. Try Remix picks or a different playlist.");
+      const shortlist = Core.recommend(state.candidates, state.tracks, { ...options(), limit: 30 });
+      $(".mm-status strong").textContent = "Checking every pick against this playlist…";
+      try {
+        const membership = await bridge("membership", {
+          playlistId: targetPlaylistId,
+          videoIds: shortlist.map((track) => track.videoId)
+        }, 60000);
+        const existingIds = new Set(membership.existingVideoIds || []);
+        for (const track of shortlist) {
+          if (existingIds.has(track.videoId) && !state.tracks.some((item) => item.videoId === track.videoId)) state.tracks.push(track);
+        }
+      } catch (_) {}
+      if (runId !== state.generationId) return;
       const ranked = Core.recommend(state.candidates, state.tracks, options());
       if (!ranked.length) throw new Error("The discovery pool was empty after duplicate removal. Please retry.");
       state.recommendations = ranked;

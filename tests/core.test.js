@@ -27,6 +27,15 @@ test("dedupe blocks an existing playlist song even when YouTube returns another 
   assert.deepEqual(result.map((track) => track.videoId), ["new"]);
 });
 
+test("dedupe treats official-audio and Topic variants as the same song", () => {
+  const playlist = [{ videoId: "original", title: "Night Drive", artist: "Chromatics" }];
+  const result = Core.dedupe([
+    { videoId: "official-audio", title: "Night Drive (Official Audio)", artist: "Chromatics - Topic" },
+    { videoId: "new", title: "Night Shift", artist: "Chromatics" }
+  ], playlist);
+  assert.deepEqual(result.map((track) => track.videoId), ["new"]);
+});
+
 test("chooseSeeds spans the playlist and avoids artist monoculture", () => {
   const tracks = Array.from({ length: 20 }, (_, i) => ({ videoId: String(i), title: `T${i}`, artist: i < 10 ? "Same" : `A${i}` }));
   const chosen = Core.chooseSeeds(tracks, 5);
@@ -96,4 +105,50 @@ test("previewWindow targets the chorus region and stays inside the track", () =>
   assert.deepEqual(Core.previewWindow("4:00"), { start: 91, end: 111 });
   assert.deepEqual(Core.previewWindow("1:00"), { start: 30, end: 50 });
   assert.deepEqual(Core.previewWindow("unknown"), { start: 15, end: 35 });
+});
+
+test("playlist parser supports the current play-button response shape", () => {
+  const renderer = { musicResponsiveListItemRenderer: {
+    overlay: { musicItemThumbnailOverlayRenderer: { content: { musicPlayButtonRenderer: {
+      playNavigationEndpoint: { watchEndpoint: { videoId: "modern-video", playlistSetVideoId: "modern-set" } }
+    } } } },
+    flexColumns: [
+      { musicResponsiveListItemFlexColumnRenderer: { text: { runs: [{ text: "Modern Song", navigationEndpoint: { watchEndpoint: { videoId: "modern-video" } } }] } } },
+      { musicResponsiveListItemFlexColumnRenderer: { text: { runs: [{ text: "Modern Artist", navigationEndpoint: { browseEndpoint: { browseEndpointContextSupportedConfigs: { browseEndpointContextMusicConfig: { pageType: "MUSIC_PAGE_TYPE_ARTIST" } } } } }] } } },
+      { musicResponsiveListItemFlexColumnRenderer: { text: { runs: [{ text: "Modern Album", navigationEndpoint: { browseEndpoint: { browseEndpointContextSupportedConfigs: { browseEndpointContextMusicConfig: { pageType: "MUSIC_PAGE_TYPE_ALBUM" } } } } }] } } }
+    ],
+    fixedColumns: [{ musicResponsiveListItemFixedColumnRenderer: { text: { simpleText: "3:42" } } }]
+  } };
+  assert.deepEqual(Core.parseRendererTrack(renderer, "seed"), {
+    videoId: "modern-video", title: "Modern Song", artist: "Modern Artist", album: "Modern Album",
+    duration: "3:42", thumbnail: "", seedId: "seed", setVideoId: "modern-set", isExplicit: false
+  });
+});
+
+test("playlist parser recovers unavailable tracks from the remove-menu action", () => {
+  const renderer = { musicResponsiveListItemRenderer: {
+    menu: { menuRenderer: { items: [{ menuServiceItemRenderer: { serviceEndpoint: { playlistEditEndpoint: {
+      actions: [{ action: "ACTION_REMOVE_VIDEO", removedVideoId: "unavailable-video", setVideoId: "unavailable-set" }]
+    } } } }] } },
+    flexColumns: [
+      { musicResponsiveListItemFlexColumnRenderer: { text: { runs: [{ text: "Rare Upload" }] } } },
+      { musicResponsiveListItemFlexColumnRenderer: { text: { runs: [{ text: "Uploader" }] } } }
+    ]
+  } };
+  const parsed = Core.parseRendererTrack(renderer);
+  assert.equal(parsed.videoId, "unavailable-video");
+  assert.equal(parsed.setVideoId, "unavailable-set");
+  assert.equal(parsed.title, "Rare Upload");
+});
+
+test("queue rows preserve the artist for duplicate detection", () => {
+  const renderer = { playlistPanelVideoRenderer: {
+    videoId: "queue-video",
+    title: { runs: [{ text: "Queue Song" }] },
+    longBylineText: { runs: [{ text: "Queue Artist" }] },
+    lengthText: { runs: [{ text: "2:55" }] }
+  } };
+  const parsed = Core.parseRendererTrack(renderer);
+  assert.equal(parsed.artist, "Queue Artist");
+  assert.equal(parsed.videoId, "queue-video");
 });

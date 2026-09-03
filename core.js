@@ -8,6 +8,21 @@
   const clamp = (value, min = 0, max = 1) => Math.max(min, Math.min(max, value));
   const clean = (value = "") => String(value).replace(/\s+/g, " ").trim();
   const key = (value = "") => clean(value).toLocaleLowerCase().replace(/[^\p{L}\p{N}]+/gu, " ").trim();
+  function titleIdentity(value = "") {
+    const original = key(value);
+    const withoutTaggedBrackets = String(value).replace(/[([{][^\])}]{0,100}[\])}]/g, (part) =>
+      /official|audio|video|lyrics?|visuali[sz]er|remaster(?:ed)?|radio edit|clean|explicit|hd|4k/i.test(part) ? " " : part
+    );
+    const normalized = key(withoutTaggedBrackets)
+      .replace(/\b(?:official|music|audio|video|lyrics?|visualizer|visualiser|remaster|remastered|hd|hq|4k)\b/g, " ")
+      .replace(/\s+/g, " ").trim();
+    return normalized || original;
+  }
+  function artistIdentity(value = "") {
+    const original = key(value);
+    const normalized = original.replace(/\b(?:official|topic|vevo)\b/g, " ").replace(/\s+/g, " ").trim();
+    return normalized || original;
+  }
   const sigmoid = (x) => 1 / (1 + Math.exp(-x));
   function hash(value) {
     let result = 2166136261;
@@ -16,6 +31,87 @@
       result = Math.imul(result, 16777619);
     }
     return result >>> 0;
+  }
+
+  function textFromRuns(runs = []) {
+    return runs.map((run) => run?.text || "").join("").trim();
+  }
+
+  function pageType(run) {
+    return run?.navigationEndpoint?.browseEndpoint?.browseEndpointContextSupportedConfigs
+      ?.browseEndpointContextMusicConfig?.pageType || "";
+  }
+
+  function findDeep(node, pick, depth = 0, seen = new WeakSet()) {
+    if (!node || typeof node !== "object" || depth > 30 || seen.has(node)) return "";
+    seen.add(node);
+    const selected = pick(node);
+    if (selected) return selected;
+    for (const value of Object.values(node)) {
+      if (Array.isArray(value)) {
+        for (const child of value) {
+          const result = findDeep(child, pick, depth + 1, seen);
+          if (result) return result;
+        }
+      } else {
+        const result = findDeep(value, pick, depth + 1, seen);
+        if (result) return result;
+      }
+    }
+    return "";
+  }
+
+  function parseRendererTrack(renderer, seedId = "") {
+    const data = renderer?.musicResponsiveListItemRenderer || renderer?.playlistPanelVideoRenderer;
+    if (!data) return null;
+    const columns = (data.flexColumns || []).map((column) =>
+      column.musicResponsiveListItemFlexColumnRenderer?.text?.runs || []
+    );
+    const titleRuns = columns.find((runs) => runs.some((run) => run.navigationEndpoint?.watchEndpoint?.videoId))
+      || data.title?.runs || columns[0] || [];
+    const artistRuns = columns.find((runs) => runs.some((run) => {
+      const type = pageType(run);
+      return type === "MUSIC_PAGE_TYPE_ARTIST" || type === "MUSIC_PAGE_TYPE_UNKNOWN" || type === "MUSIC_PAGE_TYPE_USER_CHANNEL";
+    })) || columns.find((runs) => runs !== titleRuns && runs.some((run) => run.text))
+      || data.longBylineText?.runs || data.shortBylineText?.runs || [];
+    const albumRuns = columns.find((runs) => runs.some((run) => ["MUSIC_PAGE_TYPE_ALBUM", "MUSIC_PAGE_TYPE_AUDIOBOOK"].includes(pageType(run)))) || [];
+    const menuAction = findDeep(data.menu, (node) => {
+      const action = node.playlistEditEndpoint?.actions?.[0];
+      return action?.removedVideoId ? action : "";
+    });
+    const videoId = data.playlistItemData?.videoId
+      || data.videoId
+      || data.navigationEndpoint?.watchEndpoint?.videoId
+      || titleRuns.find((run) => run.navigationEndpoint?.watchEndpoint?.videoId)?.navigationEndpoint.watchEndpoint.videoId
+      || data.overlay?.musicItemThumbnailOverlayRenderer?.content?.musicPlayButtonRenderer?.playNavigationEndpoint?.watchEndpoint?.videoId
+      || menuAction?.removedVideoId
+      || findDeep(data, (node) => node.playNavigationEndpoint?.watchEndpoint?.videoId || "");
+    const setVideoId = data.playlistItemData?.playlistSetVideoId
+      || data.playlistSetVideoId
+      || data.overlay?.musicItemThumbnailOverlayRenderer?.content?.musicPlayButtonRenderer?.playNavigationEndpoint?.watchEndpoint?.playlistSetVideoId
+      || menuAction?.setVideoId
+      || "";
+    const title = textFromRuns(titleRuns);
+    if (!videoId || !title || title === "Song deleted") return null;
+    const artistRun = artistRuns.find((run) => ["MUSIC_PAGE_TYPE_ARTIST", "MUSIC_PAGE_TYPE_UNKNOWN", "MUSIC_PAGE_TYPE_USER_CHANNEL"].includes(pageType(run)))
+      || artistRuns.find((run) => run.text);
+    const duration = data.fixedColumns?.[0]?.musicResponsiveListItemFixedColumnRenderer?.text;
+    const durationText = duration?.simpleText || textFromRuns(duration?.runs)
+      || columns.flat().find((run) => /^\d{1,2}:\d{2}(?::\d{2})?$/.test(run.text || ""))?.text || "";
+    const thumbnail = findDeep(data.thumbnail || data, (node) =>
+      Array.isArray(node.thumbnails) && node.thumbnails.length ? node.thumbnails.at(-1)?.url : ""
+    );
+    return {
+      videoId,
+      title,
+      artist: artistRun?.text || "Unknown artist",
+      album: textFromRuns(albumRuns),
+      duration: durationText,
+      thumbnail,
+      seedId,
+      setVideoId,
+      isExplicit: JSON.stringify(data.badges || []).includes("EXPLICIT")
+    };
   }
 
   function canonicalTrack(raw) {
@@ -33,20 +129,23 @@
       sourceRank: Number.isFinite(raw.sourceRank) ? raw.sourceRank : 50,
       isExplicit: Boolean(raw.isExplicit),
       titleKey: key(title),
-      artistKey: key(artist)
+      artistKey: key(artist),
+      identityTitle: titleIdentity(title),
+      identityArtist: artistIdentity(artist)
     };
   }
 
   function dedupe(candidates, seeds = []) {
     const existingIds = new Set(seeds.map((x) => x.videoId).filter(Boolean));
-    const existingPairs = new Set(seeds.map((x) => `${key(x.title)}|${key(x.artist)}`));
+    const existingPairs = new Set(seeds.map((x) => `${titleIdentity(x.title)}|${artistIdentity(x.artist)}`));
+    const existingUnknownTitles = new Set(seeds.filter((x) => artistIdentity(x.artist) === "unknown artist").map((x) => titleIdentity(x.title)));
     const byIdentity = new Map();
 
     for (const raw of candidates) {
       const item = canonicalTrack(raw);
       if (!item.videoId || !item.title || existingIds.has(item.videoId)) continue;
-      const identity = `${item.titleKey}|${item.artistKey}`;
-      if (existingPairs.has(identity)) continue;
+      const identity = `${item.identityTitle}|${item.identityArtist}`;
+      if (existingPairs.has(identity) || existingUnknownTitles.has(item.identityTitle)) continue;
       const previous = byIdentity.get(identity);
       if (!previous || item.sourceRank < previous.sourceRank) byIdentity.set(identity, item);
     }
@@ -164,5 +263,5 @@
     return { start, end: Math.min(seconds - 2, start + 20) };
   }
 
-  return { canonicalTrack, chooseSeeds, dedupe, hash, key, previewWindow, recommend, similarity };
+  return { artistIdentity, canonicalTrack, chooseSeeds, dedupe, hash, key, parseRendererTrack, previewWindow, recommend, similarity, titleIdentity };
 });

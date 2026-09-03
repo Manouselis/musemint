@@ -49,8 +49,17 @@
         return;
       }
       const item = node.musicResponsiveListItemRenderer || node.playlistPanelVideoRenderer;
-      if (item?.playlistItemData?.videoId === addedVideoId) {
-        result = item.playlistItemData.playlistSetVideoId || item.playlistSetVideoId || "";
+      if (item) {
+        const menuAction = item.menu?.menuRenderer?.items?.map((entry) =>
+          entry.menuServiceItemRenderer?.serviceEndpoint?.playlistEditEndpoint?.actions?.[0]
+        ).find((action) => action?.removedVideoId === addedVideoId);
+        const playEndpoint = item.overlay?.musicItemThumbnailOverlayRenderer?.content?.musicPlayButtonRenderer
+          ?.playNavigationEndpoint?.watchEndpoint;
+        const itemVideoId = item.playlistItemData?.videoId || playEndpoint?.videoId || menuAction?.removedVideoId;
+        if (itemVideoId === addedVideoId) {
+          result = item.playlistItemData?.playlistSetVideoId || item.playlistSetVideoId
+            || playEndpoint?.playlistSetVideoId || menuAction?.setVideoId || "";
+        }
         if (result) return;
       }
       for (const value of Object.values(node)) {
@@ -62,5 +71,31 @@
     return result;
   }
 
-  return { collectAll, continuationToken, setVideoIdFrom };
+  function playlistOptionSelected(payload, playlistId) {
+    const target = String(playlistId || "").replace(/^VL/, "");
+    let selected = false;
+    const seen = new WeakSet();
+    function visit(node, depth = 0) {
+      if (selected || !node || typeof node !== "object" || depth > 30 || seen.has(node)) return;
+      seen.add(node);
+      const option = node.playlistAddToOptionRenderer || node.addToPlaylistItemRenderer
+        || node.musicResponsiveListItemRenderer || node.musicTwoRowItemRenderer;
+      if (option) {
+        const optionId = option.playlistId
+          || option.serviceEndpoint?.playlistEditEndpoint?.playlistId
+          || option.navigationEndpoint?.browseEndpoint?.browseId?.replace(/^VL/, "");
+        const checked = option.selected === true || option.checked === true || option.containsSelectedVideos === true
+          || option.checkboxRenderer?.checkedState === "CHECKBOX_CHECKED_STATE_CHECKED";
+        if (String(optionId || "").replace(/^VL/, "") === target && checked) selected = true;
+      }
+      for (const value of Object.values(node)) {
+        if (Array.isArray(value)) value.forEach((item) => visit(item, depth + 1));
+        else visit(value, depth + 1);
+      }
+    }
+    visit(payload);
+    return selected;
+  }
+
+  return { collectAll, continuationToken, playlistOptionSelected, setVideoIdFrom };
 });
