@@ -71,22 +71,37 @@
     return result;
   }
 
-  function playlistOptionSelected(payload, playlistId) {
-    const target = String(playlistId || "").replace(/^VL/, "");
-    let selected = false;
+  function textFrom(value) {
+    if (!value) return "";
+    if (typeof value.simpleText === "string") return value.simpleText.trim();
+    if (Array.isArray(value.runs)) return value.runs.map((run) => run?.text || "").join("").trim();
+    return "";
+  }
+
+  function playlistOptionsFrom(payload) {
+    const playlists = new Map();
     const seen = new WeakSet();
     function visit(node, depth = 0) {
-      if (selected || !node || typeof node !== "object" || depth > 30 || seen.has(node)) return;
+      if (!node || typeof node !== "object" || depth > 30 || seen.has(node)) return;
       seen.add(node);
       const option = node.playlistAddToOptionRenderer || node.addToPlaylistItemRenderer
         || node.musicResponsiveListItemRenderer || node.musicTwoRowItemRenderer;
       if (option) {
-        const optionId = option.playlistId
+        const playlistId = String(option.playlistId
           || option.serviceEndpoint?.playlistEditEndpoint?.playlistId
-          || option.navigationEndpoint?.browseEndpoint?.browseId?.replace(/^VL/, "");
-        const checked = option.selected === true || option.checked === true || option.containsSelectedVideos === true
+          || option.navigationEndpoint?.browseEndpoint?.browseId
+          || "").replace(/^VL/, "");
+        const selected = option.selected === true || option.checked === true || option.containsSelectedVideos === true
           || option.checkboxRenderer?.checkedState === "CHECKBOX_CHECKED_STATE_CHECKED";
-        if (String(optionId || "").replace(/^VL/, "") === target && checked) selected = true;
+        const columns = option.flexColumns || [];
+        const columnTexts = columns.map((column) => textFrom(column.musicResponsiveListItemFlexColumnRenderer?.text)).filter(Boolean);
+        const title = textFrom(option.title) || columnTexts[0] || "Untitled playlist";
+        const subtitle = textFrom(option.subtitle) || columnTexts.slice(1).join(" · ");
+        if (playlistId && !playlists.has(playlistId)) {
+          playlists.set(playlistId, { playlistId, title, subtitle, selected });
+        } else if (playlistId && selected && !playlists.get(playlistId).selected) {
+          playlists.get(playlistId).selected = true;
+        }
       }
       for (const value of Object.values(node)) {
         if (Array.isArray(value)) value.forEach((item) => visit(item, depth + 1));
@@ -94,8 +109,13 @@
       }
     }
     visit(payload);
-    return selected;
+    return [...playlists.values()];
   }
 
-  return { collectAll, continuationToken, playlistOptionSelected, setVideoIdFrom };
+  function playlistOptionSelected(payload, playlistId) {
+    const target = String(playlistId || "").replace(/^VL/, "");
+    return playlistOptionsFrom(payload).some((option) => option.playlistId === target && option.selected);
+  }
+
+  return { collectAll, continuationToken, playlistOptionSelected, playlistOptionsFrom, setVideoIdFrom };
 });

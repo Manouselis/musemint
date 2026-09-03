@@ -206,6 +206,10 @@
     if (type === "search") return api("search", { query: payload.query });
     if (type === "playlist") return fullPlaylist(payload.playlistId);
     if (type === "membership") return existingPlaylistVideos(payload.playlistId, payload.videoIds);
+    if (type === "playlistOptions") {
+      const response = await api("playlist/get_add_to_playlist", { videoIds: [payload.videoId] });
+      return { playlists: MuseMintPagination.playlistOptionsFrom(response) };
+    }
     if (type === "previewStart" || type === "previewStop") return playerCommand(type, payload.shouldResume);
     if (type === "add") {
       const playlistId = String(payload.playlistId || "").replace(/^VL/, "");

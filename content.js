@@ -12,6 +12,8 @@
     candidates: [],
     recommendations: [],
     added: new Map(),
+    playlistOptions: new Map(),
+    playlistOptionRequests: new Map(),
     rejected: new Set(),
     variation: 0,
     feedback: { tracks: {}, artists: {} },
@@ -109,7 +111,7 @@
         <section class="mm-status" hidden><span class="mm-spinner"></span><strong>Mapping your taste graph…</strong><small>Sampling distant corners of this playlist</small></section>
         <section class="mm-results" hidden><div class="mm-result-head"><span class="mm-count"></span><span class="mm-engine"></span></div><div class="mm-list"></div></section>
       </div>
-      <footer><button class="mm-privacy" aria-describedby="mm-privacy-tip">Private by design<span id="mm-privacy-tip" role="tooltip">No analytics or remote server. Playlist analysis and preference learning stay in this browser.</span></button><span>Runs inside YouTube Music</span></footer>
+      <footer><button class="mm-privacy" aria-describedby="mm-privacy-tip">Private by design<span id="mm-privacy-tip" role="tooltip">No analytics or developer server. The chooser reads playlist names from YouTube Music on hover or focus; nothing changes until you click.</span></button><span>Runs inside YouTube Music</span></footer>
     </aside>`;
   document.documentElement.appendChild(shell);
 
@@ -124,6 +126,7 @@
 
   function setOpen(value) {
     state.open = value;
+    if (!value) closePlaylistPickers();
     panel.classList.toggle("is-open", value);
     panel.setAttribute("aria-hidden", String(!value));
     launch.classList.toggle("is-hidden", value);
@@ -250,6 +253,109 @@
     container.appendChild(row);
   }
 
+  function normalizedPlaylistId(value) {
+    return String(value || "").replace(/^VL/, "");
+  }
+
+  function setCachedPlaylistSelection(videoId, playlistIdValue, selected) {
+    const playlistId = normalizedPlaylistId(playlistIdValue);
+    const cached = state.playlistOptions.get(videoId);
+    if (!cached) return;
+    const option = cached.find((item) => normalizedPlaylistId(item.playlistId) === playlistId);
+    if (option) option.selected = selected;
+  }
+
+  function closePlaylistPickers(except = null) {
+    shell.querySelectorAll(".mm-playlist-picker:not([hidden])").forEach((picker) => {
+      if (picker === except) return;
+      picker.hidden = true;
+      picker.closest(".mm-add-wrap")?.querySelector(".mm-playlist-picker-toggle")?.setAttribute("aria-expanded", "false");
+    });
+  }
+
+  function renderPlaylistOptions(track, picker, primaryAdd) {
+    const menu = picker.querySelector(".mm-playlist-picker-list");
+    menu.replaceChildren();
+    const currentId = normalizedPlaylistId(state.playlistId);
+    const options = [...(state.playlistOptions.get(track.videoId) || [])]
+      .sort((a, b) => Number(normalizedPlaylistId(b.playlistId) === currentId) - Number(normalizedPlaylistId(a.playlistId) === currentId));
+    if (!options.length) {
+      const empty = document.createElement("p");
+      empty.className = "mm-playlist-picker-status";
+      empty.textContent = "No editable playlists were returned by YouTube Music.";
+      menu.appendChild(empty);
+      return;
+    }
+    for (const option of options) {
+      const isCurrent = normalizedPlaylistId(option.playlistId) === currentId;
+      const selected = option.selected || (isCurrent && state.added.has(track.videoId));
+      const row = document.createElement("button");
+      row.type = "button";
+      row.className = "mm-playlist-option";
+      row.setAttribute("role", "menuitem");
+      row.disabled = selected || isCurrent;
+      const copy = document.createElement("span");
+      const title = document.createElement("strong");
+      title.textContent = option.title || "Untitled playlist";
+      const detail = document.createElement("small");
+      detail.textContent = selected ? (isCurrent ? "Current · Already added" : "Already added") : (isCurrent ? "Current · Use the Add button" : option.subtitle || "Add here");
+      copy.append(title, detail);
+      const mark = document.createElement("b");
+      mark.textContent = selected ? "✓" : isCurrent ? "●" : "+";
+      row.append(copy, mark);
+      row.addEventListener("click", async () => {
+        if (row.disabled) return;
+        row.disabled = true;
+        detail.textContent = "Adding…";
+        mark.textContent = "↻";
+        try {
+          await bridge("add", { playlistId: option.playlistId, videoId: track.videoId }, 90000);
+          setCachedPlaylistSelection(track.videoId, option.playlistId, true);
+          recordFeedback(track, 1);
+          detail.textContent = "Added";
+          mark.textContent = "✓";
+          row.classList.add("is-selected");
+          primaryAdd.title = `Also added to ${option.title || "another playlist"}`;
+        } catch (error) {
+          row.disabled = false;
+          detail.textContent = "Could not add · Try again";
+          mark.textContent = "!";
+          row.title = error.message;
+        }
+      });
+      menu.appendChild(row);
+    }
+  }
+
+  async function loadPlaylistOptions(track, picker, primaryAdd) {
+    if (state.playlistOptions.has(track.videoId)) {
+      renderPlaylistOptions(track, picker, primaryAdd);
+      return;
+    }
+    const menu = picker.querySelector(".mm-playlist-picker-list");
+    const loading = document.createElement("p");
+    loading.className = "mm-playlist-picker-status";
+    loading.textContent = "Loading your playlists…";
+    menu.replaceChildren(loading);
+    try {
+      let request = state.playlistOptionRequests.get(track.videoId);
+      if (!request) {
+        request = bridge("playlistOptions", { videoId: track.videoId }, 30000);
+        state.playlistOptionRequests.set(track.videoId, request);
+        request.finally(() => {
+          if (state.playlistOptionRequests.get(track.videoId) === request) state.playlistOptionRequests.delete(track.videoId);
+        }).catch(() => {});
+      }
+      const response = await request;
+      state.playlistOptions.set(track.videoId, Array.isArray(response.playlists) ? response.playlists : []);
+      if (picker.isConnected) renderPlaylistOptions(track, picker, primaryAdd);
+    } catch (error) {
+      if (!picker.isConnected) return;
+      loading.textContent = "Could not load playlists · Hover to retry";
+      loading.title = error.message;
+    }
+  }
+
   function createTrackCard(track, index) {
     const card = document.createElement("article");
     card.className = "mm-card";
@@ -282,11 +388,63 @@
     dislike.addEventListener("click", () => dislikeTrack(track));
     const add = document.createElement("button");
     add.className = "mm-add";
-    add.setAttribute("aria-label", `Add ${track.title} to playlist`);
+    add.setAttribute("aria-label", `Add ${track.title} to the open playlist`);
     add.innerHTML = `<span>+</span><em>Add</em>`;
     if (state.added.has(track.videoId)) { add.classList.add("is-added"); add.innerHTML = `<span>✓</span><em>Added</em>`; }
     add.addEventListener("click", () => togglePlaylistTrack(track, add));
-    actions.append(preview, dislike, add);
+    const addWrap = document.createElement("div");
+    addWrap.className = "mm-add-wrap";
+    const pickerId = `mm-playlist-picker-${index}-${track.videoId.replace(/[^a-z0-9_-]/gi, "")}`;
+    const pickerToggle = document.createElement("button");
+    pickerToggle.type = "button";
+    pickerToggle.className = "mm-playlist-picker-toggle";
+    pickerToggle.textContent = "⌄";
+    pickerToggle.setAttribute("aria-label", `Choose another playlist for ${track.title}`);
+    pickerToggle.setAttribute("aria-haspopup", "menu");
+    pickerToggle.setAttribute("aria-expanded", "false");
+    pickerToggle.setAttribute("aria-controls", pickerId);
+    const picker = document.createElement("div");
+    picker.id = pickerId;
+    picker.className = "mm-playlist-picker";
+    picker.hidden = true;
+    const pickerHeading = document.createElement("strong");
+    pickerHeading.className = "mm-playlist-picker-heading";
+    pickerHeading.textContent = "Add to a playlist";
+    const pickerList = document.createElement("div");
+    pickerList.className = "mm-playlist-picker-list";
+    pickerList.setAttribute("role", "menu");
+    pickerList.setAttribute("aria-label", `Playlists for ${track.title}`);
+    picker.append(pickerHeading, pickerList);
+    addWrap.append(add, pickerToggle, picker);
+    let pickerTimer = 0;
+    const openPicker = () => {
+      clearTimeout(pickerTimer);
+      closePlaylistPickers(picker);
+      const anchorBounds = addWrap.getBoundingClientRect();
+      const bodyBounds = addWrap.closest(".mm-body")?.getBoundingClientRect();
+      picker.classList.toggle("is-below", Boolean(bodyBounds && bodyBounds.bottom - anchorBounds.bottom > anchorBounds.top - bodyBounds.top));
+      picker.hidden = false;
+      pickerToggle.setAttribute("aria-expanded", "true");
+      loadPlaylistOptions(track, picker, add);
+    };
+    const scheduleOpen = () => { clearTimeout(pickerTimer); pickerTimer = setTimeout(openPicker, 180); };
+    const scheduleClose = () => {
+      clearTimeout(pickerTimer);
+      pickerTimer = setTimeout(() => {
+        if (addWrap.matches(":hover") || addWrap.contains(document.activeElement)) return;
+        closePlaylistPickers();
+      }, 280);
+    };
+    addWrap.addEventListener("mouseenter", scheduleOpen);
+    addWrap.addEventListener("mouseleave", scheduleClose);
+    addWrap.addEventListener("focusin", openPicker);
+    addWrap.addEventListener("focusout", scheduleClose);
+    pickerToggle.addEventListener("click", (event) => {
+      event.stopPropagation();
+      if (picker.hidden) openPicker();
+      else closePlaylistPickers();
+    });
+    actions.append(preview, dislike, addWrap);
     const dismiss = document.createElement("button");
     dismiss.className = "mm-dismiss";
     dismiss.textContent = "×";
@@ -323,18 +481,22 @@
       if (removing) {
         await bridge("remove", { playlistId: state.playlistId, videoId: track.videoId, setVideoId: state.added.get(track.videoId) }, 90000);
         state.added.delete(track.videoId);
+        setCachedPlaylistSelection(track.videoId, state.playlistId, false);
         state.tracks = state.tracks.filter((item) => item.videoId !== track.videoId);
         recordFeedback(track, 0);
         syncVisiblePlaylist(track, false);
         button.classList.remove("is-working", "is-added", "is-error");
         button.innerHTML = `<span>+</span><em>Add</em>`;
         button.title = "Add to playlist";
-        button.setAttribute("aria-label", `Add ${track.title} to playlist`);
+        button.setAttribute("aria-label", `Add ${track.title} to the open playlist`);
+        const picker = button.closest(".mm-add-wrap")?.querySelector(".mm-playlist-picker");
+        if (picker && !picker.hidden) renderPlaylistOptions(track, picker, button);
         button.disabled = false;
         return;
       }
       const result = await bridge("add", { playlistId: state.playlistId, videoId: track.videoId }, 90000);
       state.added.set(track.videoId, result.setVideoId || "");
+      setCachedPlaylistSelection(track.videoId, state.playlistId, true);
       if (!state.tracks.some((item) => item.videoId === track.videoId)) state.tracks.push(track);
       recordFeedback(track, 1);
       syncVisiblePlaylist(track, true);
@@ -343,6 +505,8 @@
       button.innerHTML = `<span>✓</span><em>Added</em>`;
       button.title = "Click again to remove from playlist";
       button.setAttribute("aria-label", `Remove ${track.title} from playlist`);
+      const picker = button.closest(".mm-add-wrap")?.querySelector(".mm-playlist-picker");
+      if (picker && !picker.hidden) renderPlaylistOptions(track, picker, button);
       button.disabled = false;
     } catch (error) {
       button.disabled = false;
@@ -428,7 +592,18 @@
   $(".mm-generate").addEventListener("click", generate);
   $(".mm-refresh").addEventListener("click", () => rerank(true));
   shell.querySelectorAll('input[type="range"]').forEach((input) => input.addEventListener("change", rerank));
-  document.addEventListener("keydown", (event) => { if (event.key === "Escape" && state.open) setOpen(false); });
+  document.addEventListener("click", (event) => {
+    if (!event.target.closest?.(".mm-add-wrap")) closePlaylistPickers();
+  });
+  document.addEventListener("keydown", (event) => {
+    if (event.key !== "Escape") return;
+    const openPicker = shell.querySelector(".mm-playlist-picker:not([hidden])");
+    if (openPicker) {
+      closePlaylistPickers();
+      openPicker.closest(".mm-add-wrap")?.querySelector(".mm-playlist-picker-toggle")?.focus();
+      event.stopPropagation();
+    } else if (state.open) setOpen(false);
+  });
   chrome.runtime.onMessage.addListener((message) => { if (message.type === "MUSEMINT_TOGGLE") setOpen(!state.open); });
   const feedbackReady = loadFeedback();
 
@@ -448,6 +623,8 @@
     state.candidates = [];
     state.recommendations = [];
     state.added.clear();
+    state.playlistOptions.clear();
+    state.playlistOptionRequests.clear();
     document.querySelectorAll(".mm-playlist-added-row").forEach((row) => row.remove());
     state.rejected.clear();
     hero.hidden = false;

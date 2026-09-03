@@ -6,6 +6,8 @@ const test = require("node:test");
 const root = path.resolve(__dirname, "..");
 const content = fs.readFileSync(path.join(root, "content.js"), "utf8");
 const bridge = fs.readFileSync(path.join(root, "page-bridge.js"), "utf8");
+const core = fs.readFileSync(path.join(root, "core.js"), "utf8");
+const privacy = fs.readFileSync(path.join(root, "PRIVACY.md"), "utf8");
 const manifest = JSON.parse(fs.readFileSync(path.join(root, "manifest.json"), "utf8"));
 
 test("manifest and source contain no language-model integration", () => {
@@ -80,4 +82,30 @@ test("shortlisted recommendations are verified against YouTube playlist membersh
   assert.match(content, /bridge\("membership"/);
   assert.match(content, /limit: 30/);
   assert.match(content, /existingIds\.has\(track\.videoId\)/);
+});
+
+test("playlist chooser works by hover, focus, and an explicit keyboard button", () => {
+  assert.match(content, /bridge\("playlistOptions"/);
+  assert.match(content, /mouseenter/);
+  assert.match(content, /focusin/);
+  assert.match(content, /aria-haspopup/);
+  assert.match(content, /aria-expanded/);
+  assert.match(content, /Choose another playlist/);
+  assert.match(bridge, /MuseMintPagination\.playlistOptionsFrom/);
+});
+
+test("playlist chooser keeps remote text out of HTML parsing", () => {
+  assert.match(content, /title\.textContent = option\.title/);
+  assert.doesNotMatch(content, /innerHTML = option\.title/);
+});
+
+test("diversity ranking caches maximum similarity instead of rescanning selections", () => {
+  assert.match(core, /maxSimilarityById/);
+  assert.doesNotMatch(core, /selected\.map\(\(x\) => similarity/);
+});
+
+test("privacy note discloses the read-only playlist lookup and explicit add boundary", () => {
+  assert.match(privacy, /playlist\/get_add_to_playlist/);
+  assert.match(privacy, /hover(?:ing)? over or focus(?:ing)?/i);
+  assert.match(privacy, /only after.*click/i);
 });

@@ -90,3 +90,38 @@ test("playlistOptionSelected does not confuse a different or unchecked playlist"
   ] } };
   assert.equal(Pagination.playlistOptionSelected(response, "PLTARGET"), false);
 });
+
+test("playlistOptionsFrom extracts titles, canonical IDs, and selected state", () => {
+  const response = { addToPlaylistRenderer: { contents: [
+    { playlistAddToOptionRenderer: {
+      playlistId: "PLONE", title: { runs: [{ text: "Road trip" }] }, containsSelectedVideos: true
+    } },
+    { addToPlaylistItemRenderer: {
+      title: { simpleText: "Late night" }, subtitle: { simpleText: "Private" },
+      serviceEndpoint: { playlistEditEndpoint: { playlistId: "PLTWO" } }
+    } },
+    { musicResponsiveListItemRenderer: {
+      navigationEndpoint: { browseEndpoint: { browseId: "VLPLTHREE" } },
+      flexColumns: [
+        { musicResponsiveListItemFlexColumnRenderer: { text: { runs: [{ text: "Running" }] } } },
+        { musicResponsiveListItemFlexColumnRenderer: { text: { runs: [{ text: "42 songs" }] } } }
+      ],
+      checkboxRenderer: { checkedState: "CHECKBOX_CHECKED_STATE_CHECKED" }
+    } }
+  ] } };
+  assert.deepEqual(Pagination.playlistOptionsFrom(response), [
+    { playlistId: "PLONE", title: "Road trip", subtitle: "", selected: true },
+    { playlistId: "PLTWO", title: "Late night", subtitle: "Private", selected: false },
+    { playlistId: "PLTHREE", title: "Running", subtitle: "42 songs", selected: true }
+  ]);
+});
+
+test("playlistOptionsFrom deduplicates playlist renderers and preserves a later checked state", () => {
+  const response = { contents: [
+    { playlistAddToOptionRenderer: { playlistId: "PLONE", title: { simpleText: "One" } } },
+    { addToPlaylistItemRenderer: { playlistId: "PLONE", selected: true, title: { simpleText: "Duplicate" } } }
+  ] };
+  assert.deepEqual(Pagination.playlistOptionsFrom(response), [
+    { playlistId: "PLONE", title: "One", subtitle: "", selected: true }
+  ]);
+});

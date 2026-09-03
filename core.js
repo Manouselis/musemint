@@ -162,9 +162,13 @@
     return { artists, max };
   }
 
+  function trackIdentity(track) {
+    return `${titleIdentity(track.title)}|${artistIdentity(track.artist)}`;
+  }
+
   function baseScore(track, context) {
     const { artistCounts, seedReach, familiarity, adventure, popularity, feedback, variation } = context;
-    const reach = seedReach.get(track.videoId)?.size || 1;
+    const reach = seedReach.get(trackIdentity(track))?.size || 1;
     const rankSignal = 1 - clamp((track.sourceRank - 1) / 50);
     const familiarArtist = artistCounts.has(track.artistKey) ? 1 : 0;
     const consensus = clamp((reach - 1) / 3);
@@ -205,13 +209,15 @@
     const seedReach = new Map();
     for (const raw of rawCandidates) {
       if (!raw.videoId) continue;
-      if (!seedReach.has(raw.videoId)) seedReach.set(raw.videoId, new Set());
-      if (raw.seedId) seedReach.get(raw.videoId).add(raw.seedId);
+      const identity = trackIdentity(raw);
+      if (!seedReach.has(identity)) seedReach.set(identity, new Set());
+      if (raw.seedId) seedReach.get(identity).add(raw.seedId);
     }
     const context = { artistCounts: stats.artists, seedReach, ...settings };
     const scored = pool.map((track) => ({ ...track, baseScore: baseScore(track, context) }));
     const selected = [];
     const artistUsage = new Map();
+    const maxSimilarityById = new Map(scored.map((track) => [track.videoId, 0]));
     const lambda = 1 - settings.diversity / 220;
 
     while (selected.length < settings.limit && scored.length) {
@@ -219,13 +225,16 @@
       let bestValue = -Infinity;
       for (let i = 0; i < scored.length; i++) {
         const item = scored[i];
-        const maxSimilarity = selected.length ? Math.max(...selected.map((x) => similarity(item, x))) : 0;
+        const maxSimilarity = maxSimilarityById.get(item.videoId) || 0;
         const artistRepeat = artistUsage.get(item.artistKey) || 0;
         const value = lambda * item.baseScore - (1 - lambda) * maxSimilarity - artistRepeat * 0.16;
         if (value > bestValue) { bestValue = value; bestIndex = i; }
       }
       const [winner] = scored.splice(bestIndex, 1);
-      const reach = seedReach.get(winner.videoId)?.size || 1;
+      for (const item of scored) {
+        maxSimilarityById.set(item.videoId, Math.max(maxSimilarityById.get(item.videoId) || 0, similarity(item, winner)));
+      }
+      const reach = seedReach.get(trackIdentity(winner))?.size || 1;
       const familiar = stats.artists.has(winner.artistKey);
       const reason = reach > 1
         ? `Connects ${reach} corners of this playlist`

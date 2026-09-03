@@ -67,6 +67,17 @@ test("multi-seed consensus receives a stronger score", () => {
   assert.match(result[0].reason, /2 corners/);
 });
 
+test("multi-seed consensus survives alternate YouTube upload IDs", () => {
+  const pool = [
+    { videoId: "upload-a", title: "Signal (Official Audio)", artist: "North - Topic", sourceRank: 7, seedId: "s1" },
+    { videoId: "upload-b", title: "Signal", artist: "North", sourceRank: 9, seedId: "s2" },
+    { videoId: "single", title: "Solo", artist: "West", sourceRank: 7, seedId: "s1" }
+  ];
+  const result = Core.recommend(pool, seeds, { limit: 2 });
+  assert.equal(result[0].videoId, "upload-a");
+  assert.match(result[0].reason, /2 corners/);
+});
+
 test("disliked tracks are removed and liked artists receive an affinity boost", () => {
   const pool = [
     { videoId: "liked-artist", title: "Left Field", artist: "Fresh", sourceRank: 8, seedId: "s1" },
