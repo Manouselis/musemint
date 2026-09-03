@@ -553,17 +553,18 @@
       if (viable.length < 1) throw new Error("No new tracks escaped this playlist. Try Remix picks or a different playlist.");
       const shortlist = Core.recommend(state.candidates, state.tracks, { ...options(), limit: 30 });
       $(".mm-status strong").textContent = "Checking every pick against this playlist…";
-      try {
-        const membership = await bridge("membership", {
-          playlistId: targetPlaylistId,
-          videoIds: shortlist.map((track) => track.videoId)
-        }, 60000);
-        const existingIds = new Set(membership.existingVideoIds || []);
-        for (const track of shortlist) {
-          if (existingIds.has(track.videoId) && !state.tracks.some((item) => item.videoId === track.videoId)) state.tracks.push(track);
-        }
-      } catch (_) {}
+      const membership = await bridge("membership", {
+        playlistId: targetPlaylistId,
+        videoIds: shortlist.map((track) => track.videoId)
+      }, 60000);
       if (runId !== state.generationId) return;
+      const checkedIds = new Set(membership.checkedVideoIds || []);
+      const existingIds = new Set(membership.existingVideoIds || []);
+      if (!checkedIds.size) throw new Error("I couldn't verify that these songs are new. Please retry in a moment.");
+      for (const track of shortlist) {
+        if (existingIds.has(track.videoId) && !state.tracks.some((item) => item.videoId === track.videoId)) state.tracks.push(track);
+      }
+      state.candidates = shortlist.filter((track) => checkedIds.has(track.videoId) && !existingIds.has(track.videoId));
       const ranked = Core.recommend(state.candidates, state.tracks, options());
       if (!ranked.length) throw new Error("The discovery pool was empty after duplicate removal. Please retry.");
       state.recommendations = ranked;

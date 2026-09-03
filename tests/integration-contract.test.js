@@ -78,10 +78,19 @@ test("playlist mutations strip browse-only VL prefixes", () => {
 
 test("shortlisted recommendations are verified against YouTube playlist membership", () => {
   assert.match(bridge, /playlist\/get_add_to_playlist/);
-  assert.match(bridge, /MuseMintPagination\.playlistOptionSelected/);
+  assert.match(bridge, /MuseMintPagination\.playlistOptionState/);
   assert.match(content, /bridge\("membership"/);
   assert.match(content, /limit: 30/);
   assert.match(content, /existingIds\.has\(track\.videoId\)/);
+});
+
+test("membership verification fails closed and removes unchecked candidates", () => {
+  assert.match(bridge, /checkedVideoIds/);
+  assert.match(bridge, /failedVideoIds/);
+  assert.match(bridge, /playlistOptionState/);
+  assert.match(content, /if \(!checkedIds\.size\) throw/);
+  assert.match(content, /state\.candidates = shortlist\.filter/);
+  assert.match(content, /checkedIds\.has\(track\.videoId\) && !existingIds\.has/);
 });
 
 test("playlist chooser works by hover, focus, and an explicit keyboard button", () => {

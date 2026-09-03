@@ -36,6 +36,40 @@ test("dedupe treats official-audio and Topic variants as the same song", () => {
   assert.deepEqual(result.map((track) => track.videoId), ["new"]);
 });
 
+test("dedupe blocks featured-artist and version-label variants", () => {
+  const playlist = [{ videoId: "original", title: "Signal", artist: "North feat. Vale" }];
+  const result = Core.dedupe([
+    { videoId: "alternate", title: "Signal (Album Version)", artist: "North" },
+    { videoId: "new", title: "Signal Fire", artist: "North" }
+  ], playlist);
+  assert.deepEqual(result.map((track) => track.videoId), ["new"]);
+});
+
+test("dedupe blocks a distinctive exact title from an unrelated alternate uploader", () => {
+  const playlist = [{ videoId: "original", title: "Everybody Wants to Rule the World", artist: "Tears for Fears" }];
+  const result = Core.dedupe([
+    { videoId: "fan-upload", title: "Everybody Wants to Rule the World (Official Audio)", artist: "Archive Channel" },
+    { videoId: "new", title: "Head Over Heels", artist: "Tears for Fears" }
+  ], playlist);
+  assert.deepEqual(result.map((track) => track.videoId), ["new"]);
+});
+
+test("dedupe keeps short generic titles by genuinely different artists", () => {
+  const playlist = [{ videoId: "one-home", title: "Home", artist: "Artist One" }];
+  const result = Core.dedupe([{ videoId: "two-home", title: "Home", artist: "Artist Two" }], playlist);
+  assert.deepEqual(result.map((track) => track.videoId), ["two-home"]);
+});
+
+test("dedupe handles accent differences and artist-prefixed upload titles", () => {
+  const playlist = [{ videoId: "original", title: "Déjà Vu", artist: "Beyoncé" }];
+  const result = Core.dedupe([
+    { videoId: "accentless", title: "Deja Vu", artist: "Beyonce" },
+    { videoId: "prefixed", title: "Beyonce - Deja Vu (Official Video)", artist: "Archive Channel" },
+    { videoId: "new", title: "Green Light", artist: "Lorde" }
+  ], playlist);
+  assert.deepEqual(result.map((track) => track.videoId), ["new"]);
+});
+
 test("chooseSeeds spans the playlist and avoids artist monoculture", () => {
   const tracks = Array.from({ length: 20 }, (_, i) => ({ videoId: String(i), title: `T${i}`, artist: i < 10 ? "Same" : `A${i}` }));
   const chosen = Core.chooseSeeds(tracks, 5);

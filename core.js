@@ -7,21 +7,42 @@
 
   const clamp = (value, min = 0, max = 1) => Math.max(min, Math.min(max, value));
   const clean = (value = "") => String(value).replace(/\s+/g, " ").trim();
-  const key = (value = "") => clean(value).toLocaleLowerCase().replace(/[^\p{L}\p{N}]+/gu, " ").trim();
+  const key = (value = "") => clean(value).toLocaleLowerCase().normalize("NFKD")
+    .replace(/\p{M}+/gu, "").replace(/[^\p{L}\p{N}]+/gu, " ").trim();
   function titleIdentity(value = "") {
     const original = key(value);
-    const withoutTaggedBrackets = String(value).replace(/[([{][^\])}]{0,100}[\])}]/g, (part) =>
-      /official|audio|video|lyrics?|visuali[sz]er|remaster(?:ed)?|radio edit|clean|explicit|hd|4k/i.test(part) ? " " : part
+    const withoutTechnicalSuffix = String(value).replace(
+      /\s[-–—|]\s*(?:official|music|audio|video|lyrics?|visuali[sz]er|remaster(?:ed)?|radio edit|single version|album version|live\b|clean|explicit|hd|hq|4k).*$/i,
+      " "
+    );
+    const withoutTaggedBrackets = withoutTechnicalSuffix.replace(/[([{][^\])}]{0,100}[\])}]/g, (part) =>
+      /official|audio|video|lyrics?|visuali[sz]er|remaster(?:ed)?|radio edit|single version|album version|live\b|clean|explicit|mono|stereo|feat\.?|ft\.?|featuring|with\b|hd|4k/i.test(part) ? " " : part
     );
     const normalized = key(withoutTaggedBrackets)
-      .replace(/\b(?:official|music|audio|video|lyrics?|visualizer|visualiser|remaster|remastered|hd|hq|4k)\b/g, " ")
+      .replace(/\b(?:feat|ft|featuring)\b.*$/g, " ")
+      .replace(/\b(?:official|music|audio|video|lyrics?|visualizer|visualiser|remaster|remastered|mono|stereo|hd|hq|4k)\b/g, " ")
       .replace(/\s+/g, " ").trim();
     return normalized || original;
   }
   function artistIdentity(value = "") {
     const original = key(value);
-    const normalized = original.replace(/\b(?:official|topic|vevo)\b/g, " ").replace(/\s+/g, " ").trim();
+    const withoutFeatures = String(value).replace(/\s+(?:feat\.?|ft\.?|featuring|with)\s+.*$/i, " ");
+    const normalized = key(withoutFeatures).replace(/\b(?:official|topic|vevo)\b/g, " ").replace(/\s+/g, " ").trim();
     return normalized || original;
+  }
+
+  function artistsCompatible(a, b) {
+    const left = artistIdentity(a);
+    const right = artistIdentity(b);
+    if (!left || !right || left === "unknown artist" || right === "unknown artist") return false;
+    if (left === right) return true;
+    const leftWords = new Set(left.split(" "));
+    const rightWords = new Set(right.split(" "));
+    const smaller = leftWords.size <= rightWords.size ? leftWords : rightWords;
+    const larger = smaller === leftWords ? rightWords : leftWords;
+    let shared = 0;
+    for (const word of smaller) if (larger.has(word)) shared++;
+    return shared >= Math.min(2, smaller.size) && shared / Math.max(1, smaller.size) >= 0.75;
   }
   const sigmoid = (x) => 1 / (1 + Math.exp(-x));
   function hash(value) {
@@ -139,13 +160,28 @@
     const existingIds = new Set(seeds.map((x) => x.videoId).filter(Boolean));
     const existingPairs = new Set(seeds.map((x) => `${titleIdentity(x.title)}|${artistIdentity(x.artist)}`));
     const existingUnknownTitles = new Set(seeds.filter((x) => artistIdentity(x.artist) === "unknown artist").map((x) => titleIdentity(x.title)));
+    const existingArtistPrefixedTitles = new Set(seeds.map((seed) =>
+      `${artistIdentity(seed.artist)} ${titleIdentity(seed.title)}`.trim()
+    ));
+    const existingByTitle = new Map();
+    for (const seed of seeds) {
+      const title = titleIdentity(seed.title);
+      if (!existingByTitle.has(title)) existingByTitle.set(title, []);
+      existingByTitle.get(title).push(seed);
+    }
     const byIdentity = new Map();
 
     for (const raw of candidates) {
       const item = canonicalTrack(raw);
       if (!item.videoId || !item.title || existingIds.has(item.videoId)) continue;
       const identity = `${item.identityTitle}|${item.identityArtist}`;
-      if (existingPairs.has(identity) || existingUnknownTitles.has(item.identityTitle)) continue;
+      const sameTitleSeeds = existingByTitle.get(item.identityTitle) || [];
+      const distinctiveTitle = item.identityTitle.length >= 16 || item.identityTitle.split(" ").length >= 3;
+      const metadataMatch = sameTitleSeeds.some((seed) => artistsCompatible(item.artist, seed.artist)
+        || (item.album && seed.album && key(item.album) === key(seed.album)));
+      if (existingPairs.has(identity) || existingUnknownTitles.has(item.identityTitle)
+        || existingArtistPrefixedTitles.has(item.identityTitle)
+        || metadataMatch || (distinctiveTitle && sameTitleSeeds.length)) continue;
       const previous = byIdentity.get(identity);
       if (!previous || item.sourceRank < previous.sourceRank) byIdentity.set(identity, item);
     }
@@ -272,5 +308,5 @@
     return { start, end: Math.min(seconds - 2, start + 20) };
   }
 
-  return { artistIdentity, canonicalTrack, chooseSeeds, dedupe, hash, key, parseRendererTrack, previewWindow, recommend, similarity, titleIdentity };
+  return { artistIdentity, artistsCompatible, canonicalTrack, chooseSeeds, dedupe, hash, key, parseRendererTrack, previewWindow, recommend, similarity, titleIdentity };
 });

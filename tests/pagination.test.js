@@ -91,6 +91,23 @@ test("playlistOptionSelected does not confuse a different or unchecked playlist"
   assert.equal(Pagination.playlistOptionSelected(response, "PLTARGET"), false);
 });
 
+test("playlistOptionState distinguishes verified absence from an unreadable response", () => {
+  const response = { playlistAddToOptionRenderer: { playlistId: "PLTARGET", selected: false } };
+  assert.deepEqual(Pagination.playlistOptionState(response, "PLTARGET"), { found: true, selected: false });
+  assert.deepEqual(Pagination.playlistOptionState(response, "PLMISSING"), { found: false, selected: false });
+});
+
+test("playlist options support current multi-select endpoint and enum states", () => {
+  const response = { musicMultiSelectMenuItemRenderer: {
+    title: { simpleText: "Current shape" },
+    defaultServiceEndpoint: { playlistEditEndpoint: { playlistId: "PLCURRENT" } },
+    status: "MUSIC_MULTI_SELECT_MENU_ITEM_RENDERER_SELECTED"
+  } };
+  assert.deepEqual(Pagination.playlistOptionsFrom(response), [
+    { playlistId: "PLCURRENT", title: "Current shape", subtitle: "", selected: true }
+  ]);
+});
+
 test("playlistOptionsFrom extracts titles, canonical IDs, and selected state", () => {
   const response = { addToPlaylistRenderer: { contents: [
     { playlistAddToOptionRenderer: {

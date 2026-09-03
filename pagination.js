@@ -85,14 +85,24 @@
       if (!node || typeof node !== "object" || depth > 30 || seen.has(node)) return;
       seen.add(node);
       const option = node.playlistAddToOptionRenderer || node.addToPlaylistItemRenderer
-        || node.musicResponsiveListItemRenderer || node.musicTwoRowItemRenderer;
+        || node.musicMultiSelectMenuItemRenderer || node.musicResponsiveListItemRenderer || node.musicTwoRowItemRenderer;
       if (option) {
         const playlistId = String(option.playlistId
           || option.serviceEndpoint?.playlistEditEndpoint?.playlistId
+          || option.defaultServiceEndpoint?.playlistEditEndpoint?.playlistId
+          || option.toggledServiceEndpoint?.playlistEditEndpoint?.playlistId
           || option.navigationEndpoint?.browseEndpoint?.browseId
           || "").replace(/^VL/, "");
-        const selected = option.selected === true || option.checked === true || option.containsSelectedVideos === true
-          || option.checkboxRenderer?.checkedState === "CHECKBOX_CHECKED_STATE_CHECKED";
+        const selectedValues = [
+          option.selected, option.checked, option.containsSelectedVideos, option.containsAllVideos,
+          option.checkboxRenderer?.checkedState, option.checkbox?.checkedState, option.status
+        ];
+        const selected = selectedValues.some((value) => {
+          if (value === true) return true;
+          if (typeof value !== "string") return false;
+          const state = value.toUpperCase();
+          return !/(?:UNCHECKED|UNSELECTED|NOT_SELECTED|NONE)/.test(state) && /(?:CHECKED|SELECTED|CONTAINS)/.test(state);
+        });
         const columns = option.flexColumns || [];
         const columnTexts = columns.map((column) => textFrom(column.musicResponsiveListItemFlexColumnRenderer?.text)).filter(Boolean);
         const title = textFrom(option.title) || columnTexts[0] || "Untitled playlist";
@@ -113,9 +123,14 @@
   }
 
   function playlistOptionSelected(payload, playlistId) {
-    const target = String(playlistId || "").replace(/^VL/, "");
-    return playlistOptionsFrom(payload).some((option) => option.playlistId === target && option.selected);
+    return playlistOptionState(payload, playlistId).selected;
   }
 
-  return { collectAll, continuationToken, playlistOptionSelected, playlistOptionsFrom, setVideoIdFrom };
+  function playlistOptionState(payload, playlistId) {
+    const target = String(playlistId || "").replace(/^VL/, "");
+    const option = playlistOptionsFrom(payload).find((item) => item.playlistId === target);
+    return { found: Boolean(option), selected: Boolean(option?.selected) };
+  }
+
+  return { collectAll, continuationToken, playlistOptionSelected, playlistOptionState, playlistOptionsFrom, setVideoIdFrom };
 });

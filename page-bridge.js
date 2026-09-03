@@ -173,18 +173,28 @@
   async function existingPlaylistVideos(playlistId, videoIds = []) {
     const ids = [...new Set(videoIds.filter(Boolean))].slice(0, 30);
     const existingVideoIds = [];
+    const checkedVideoIds = [];
+    const failedVideoIds = [];
     let cursor = 0;
     async function worker() {
       while (cursor < ids.length) {
         const videoId = ids[cursor++];
-        try {
-          const response = await api("playlist/get_add_to_playlist", { videoIds: [videoId] });
-          if (MuseMintPagination.playlistOptionSelected(response, playlistId)) existingVideoIds.push(videoId);
-        } catch (_) {}
+        let verified = false;
+        for (let attempt = 0; attempt < 2 && !verified; attempt++) {
+          try {
+            const response = await api("playlist/get_add_to_playlist", { videoIds: [videoId] });
+            const membership = MuseMintPagination.playlistOptionState(response, playlistId);
+            if (!membership.found) continue;
+            checkedVideoIds.push(videoId);
+            if (membership.selected) existingVideoIds.push(videoId);
+            verified = true;
+          } catch (_) {}
+        }
+        if (!verified) failedVideoIds.push(videoId);
       }
     }
     await Promise.all(Array.from({ length: Math.min(4, ids.length) }, worker));
-    return { existingVideoIds, checked: ids.length };
+    return { existingVideoIds, checkedVideoIds, failedVideoIds, checked: checkedVideoIds.length };
   }
 
   function playerCommand(type, shouldResume = false) {

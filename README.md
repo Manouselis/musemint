@@ -1,4 +1,4 @@
-# YouTube Music Playlist Suggester — MuseMint 1.3.0
+# YouTube Music Playlist Suggester — MuseMint 1.3.1
 
 MuseMint is a local-first Chrome extension that discovers better additions for the YouTube Music playlist you are viewing and adds them in one click.
 
@@ -21,7 +21,7 @@ MuseMint does not extend the final track or repeat a single artist cluster. Its 
 - samples up to seven artist-diverse anchors across the whole playlist;
 - explores each anchor's separate related-track neighborhood;
 - rewards song identities reached from multiple, distant anchors, even when YouTube returns alternate upload IDs;
-- removes tracks already present, normalized duplicates, and repeated artists;
+- removes tracks already present across alternate uploads, accents, featured-artist labels, uploader prefixes, and common version labels;
 - uses an incrementally cached maximal-marginal-relevance pass to trade off fit against similarity efficiently;
 - exposes **Adventure** and **Artist novelty** controls;
 - makes **Remix picks** produce a new diversity-preserving variation;
@@ -35,7 +35,7 @@ MuseMint does not extend the final track or repeat a single artist cluster. Its 
 - falls back through the playlist queue and the playlist page data when the browse endpoint returns no track rows;
 - automatically regenerates when YouTube Music switches playlists without a page reload;
 - offers a **Popularity** control from deep cuts to bigger hits;
-- verifies shortlisted songs against YouTube's playlist-membership state before displaying them.
+- verifies every displayed song against YouTube's playlist-membership state, retries transient failures, and excludes anything it cannot positively verify as new.
 
 MuseMint uses a deterministic, inspectable taste graph. It does not use a language model, cloud model, or API key.
 
