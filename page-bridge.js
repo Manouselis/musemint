@@ -4,6 +4,14 @@
   window.__museMintBridge = true;
 
   const SOURCE = "musemint-extension";
+  const playback = MuseMintPlayback.createController({
+    getQueue: () => document.querySelector("ytmusic-player-queue#queue, ytmusic-player-queue, #queue"),
+    getPlayer: () => document.querySelector("#movie_player"),
+    fetchItems: (videoIds) => api("music/get_queue", { videoIds }, AbortSignal.timeout(15000)),
+    emit: (data) => window.postMessage({ source: SOURCE, channel: "playback", data }, location.origin)
+  });
+  setInterval(() => playback.tick(), 500);
+  window.addEventListener("pagehide", () => playback.release());
 
   function config() {
     const get = (name) => window.ytcfg?.get?.(name);
@@ -39,7 +47,7 @@
     return `SAPISIDHASH ${timestamp}_${await sha1(`${timestamp} ${secret} ${location.origin}`)}`;
   }
 
-  async function api(endpoint, body) {
+  async function api(endpoint, body, signal) {
     const cfg = config();
     if (!cfg.apiKey || !cfg.context?.client) throw new Error("YouTube Music is still loading. Try again in a moment.");
     const headers = {
@@ -54,6 +62,7 @@
     if (cfg.delegatedSessionId) headers["X-Goog-PageId"] = cfg.delegatedSessionId;
     const response = await fetch(`/youtubei/v1/${endpoint}?key=${encodeURIComponent(cfg.apiKey)}&prettyPrint=false`, {
       method: "POST",
+      signal,
       credentials: "include",
       headers,
       body: JSON.stringify({ context: cfg.context, ...body })
@@ -212,6 +221,10 @@
   }
 
   async function handle(type, payload) {
+    if (type === "playbackStart") return playback.start(payload.tracks, payload.videoId);
+    if (type === "playbackCommand") return playback.command(payload.action, payload.videoId);
+    if (type === "playbackStatus") return playback.snapshot();
+    if (type === "playbackRelease") return playback.release();
     if (type === "neighbors") return neighbors(payload);
     if (type === "search") return api("search", { query: payload.query });
     if (type === "playlist") return fullPlaylist(payload.playlistId);

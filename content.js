@@ -20,6 +20,10 @@
     rejected: new Set(),
     variation: 0,
     feedback: { tracks: {}, artists: {} },
+    playback: { active: false },
+    playbackBusy: false,
+    playbackRequest: 0,
+    previewRequest: 0,
     preview: { videoId: "", frame: null, timer: 0, button: null, resumePlayer: false },
     generationId: 0,
     routeTimer: 0
@@ -43,7 +47,19 @@
   }
 
   window.addEventListener("message", (event) => {
-    if (event.source !== window || event.origin !== location.origin || event.data?.source !== "musemint-extension" || event.data?.channel !== "response") return;
+    if (event.source !== window || event.origin !== location.origin || event.data?.source !== "musemint-extension") return;
+    if (event.data.channel === "playback") {
+      const data = event.data.data;
+      if (!data || typeof data !== "object") return;
+      if (data.event === "dislike" && data.track) {
+        forgetTrack(data.track, true);
+      } else {
+        state.playback = data;
+        updatePlayback();
+      }
+      return;
+    }
+    if (event.data.channel !== "response") return;
     const result = event.data;
     const request = pending.get(result.id);
     if (!request) return;
@@ -112,8 +128,16 @@
           <button class="mm-refresh" aria-label="Refresh recommendations">Remix picks</button>
         </section>
         <section class="mm-status" hidden><span class="mm-spinner"></span><strong>Mapping your taste graph…</strong><small>Sampling distant corners of this playlist</small></section>
-        <section class="mm-results" hidden><div class="mm-result-head"><span class="mm-count"></span><span class="mm-engine"></span></div><div class="mm-list"></div></section>
+        <section class="mm-results" hidden><div class="mm-listen"><button class="mm-play-all">▶ Play discoveries</button><p>Replaces Up next with these picks. Full songs, native controls.</p></div><div class="mm-result-head"><span class="mm-count"></span><span class="mm-engine"></span></div><div class="mm-list"></div></section>
       </div>
+      <section class="mm-player" aria-label="MuseMint player" hidden>
+        <div class="mm-player-heading"><span class="mm-player-label">PLAYING FROM MUSEMINT</span><button class="mm-player-stop" aria-label="Stop discovery playback">End session</button></div>
+        <div class="mm-player-track"><img class="mm-player-art" alt=""><div><strong class="mm-player-title"></strong><span class="mm-player-artist"></span></div><button class="mm-player-dislike" aria-label="Dislike current song and skip">↓</button></div>
+        <div class="mm-player-progress"><progress max="1" value="0" aria-label="Song progress"></progress><span class="mm-player-time"></span></div>
+        <div class="mm-player-bottom"><span class="mm-player-position"></span><div class="mm-transport"><button data-action="previous" aria-label="Previous song">❮</button><button data-action="toggle" aria-label="Pause" class="mm-player-toggle">Ⅱ</button><button data-action="next" aria-label="Next song">❯</button></div></div>
+        <p class="mm-up-next"></p>
+      </section>
+      <div class="mm-notice" role="status" aria-live="polite" hidden></div>
       <footer><button class="mm-privacy" aria-describedby="mm-privacy-tip">Private by design<span id="mm-privacy-tip" role="tooltip">No analytics or developer server. The chooser reads playlist names from YouTube Music on hover or focus; nothing changes until you click.</span></button><span>Runs inside YouTube Music</span></footer>
     </aside>`;
   document.documentElement.appendChild(shell);
@@ -132,13 +156,105 @@
     if (!value) closePlaylistPickers();
     panel.classList.toggle("is-open", value);
     panel.setAttribute("aria-hidden", String(!value));
+    panel.inert = !value;
     launch.classList.toggle("is-hidden", value);
+    (value ? $(".mm-close") : launch).focus();
   }
 
   function setMessage(message, isError = false) {
     const hint = $(".mm-hint");
     hint.textContent = message;
     hint.classList.toggle("is-error", isError);
+  }
+
+  function playbackNotice(message = "") {
+    const notice = $(".mm-notice");
+    notice.textContent = message;
+    notice.hidden = !message;
+  }
+
+  const clockTime = (seconds) => `${Math.floor(Math.max(0, seconds || 0) / 60)}:${String(Math.floor(Math.max(0, seconds || 0) % 60)).padStart(2, "0")}`;
+
+  function updatePlayback() {
+    const playback = state.playback;
+    const track = playback.track;
+    const active = playback.active && track;
+    $(".mm-player").hidden = !active;
+    $(".mm-play-all").disabled = state.playbackBusy || !state.recommendations.some((item) => !state.rejected.has(item.videoId));
+    $(".mm-play-all").textContent = state.playbackBusy ? "Loading your queue…" : active ? "▶ Play these picks from the start" : "▶ Play discoveries";
+    if (active) {
+      $(".mm-player-label").textContent = playback.loading ? "LOADING YOUR DISCOVERY" : playback.ended ? "DISCOVERY QUEUE FINISHED" : playback.playing ? "PLAYING FROM MUSEMINT" : "PAUSED · MUSEMINT";
+      $(".mm-player-title").textContent = track.title;
+      $(".mm-player-title").title = track.title;
+      $(".mm-player-artist").textContent = track.artist;
+      $(".mm-player-artist").title = track.artist;
+      const art = $(".mm-player-art");
+      if (track.thumbnail && art.getAttribute("src") !== track.thumbnail) art.src = track.thumbnail;
+      art.hidden = !track.thumbnail;
+      $(".mm-player-position").textContent = `${playback.index + 1} / ${playback.total} discoveries`;
+      $(".mm-player-time").textContent = `${clockTime(playback.currentTime)} / ${clockTime(playback.duration)}`;
+      $(".mm-player-progress progress").max = Math.max(1, playback.duration || 1);
+      $(".mm-player-progress progress").value = playback.currentTime || 0;
+      $(".mm-player-toggle").textContent = playback.playing ? "Ⅱ" : "▶";
+      $(".mm-player-toggle").setAttribute("aria-label", playback.playing ? "Pause" : playback.ended ? "Replay song" : "Resume");
+      $('[data-action="previous"]').disabled = !playback.canPrevious || state.playbackBusy;
+      $('[data-action="next"]').disabled = !playback.canNext || state.playbackBusy;
+      $(".mm-up-next").textContent = playback.next ? `Up next · ${playback.next.title} — ${playback.next.artist}` : "Last discovery · Remix picks for a fresh batch";
+    }
+    const label = launch.querySelector("span:last-child");
+    label.textContent = active ? `${playback.playing ? "Playing" : playback.loading ? "Loading" : playback.ended ? "Finished" : "Paused"} · ${track.title}` : "Find gems";
+    launch.title = active ? `${track.title} — ${track.artist} · Open MuseMint` : "Open MuseMint";
+    launch.setAttribute("aria-label", launch.title);
+    launch.classList.toggle("has-playback", Boolean(active));
+    for (const card of list.querySelectorAll(".mm-card")) {
+      const current = Boolean(active && card.dataset.videoId === track.videoId);
+      card.classList.toggle("is-current", current);
+      const button = card.querySelector(".mm-play-track");
+      button.textContent = current && playback.playing ? "Ⅱ" : "▶";
+      button.setAttribute("aria-label", `${current && playback.playing ? "Pause" : "Play"} ${card.dataset.title}`);
+      button.setAttribute("aria-pressed", String(current));
+      button.disabled = state.playbackBusy;
+      card.querySelector(".mm-track-state").textContent = current ? playback.loading ? "Loading…" : playback.playing ? "Now playing" : playback.ended ? "Finished" : "Paused" : "";
+      card.querySelector(".mm-preview").disabled = Boolean(active) || state.playbackBusy;
+      card.querySelector(".mm-preview").title = active ? "End discovery playback to hear a 20-second preview" : "20-second preview";
+    }
+    if (playback.message && playback.message !== state.lastPlaybackMessage) playbackNotice(playback.message);
+    state.lastPlaybackMessage = playback.message || "";
+  }
+
+  async function playDiscoveries(track) {
+    if (state.playbackBusy) return;
+    if (state.playback.active && track) {
+      if (state.playback.track?.videoId === track.videoId) return playbackCommand("toggle");
+      if (state.playback.videoIds?.includes(track.videoId)) return playbackCommand("select", track.videoId);
+    }
+    const request = ++state.playbackRequest;
+    state.playbackBusy = true;
+    playbackNotice();
+    updatePlayback();
+    const resumePreviewPlayer = state.preview.resumePlayer;
+    await stopPreview(false);
+    const tracks = state.recommendations.filter((item) => !state.rejected.has(item.videoId));
+    try {
+      const result = await bridge("playbackStart", { tracks, videoId: track?.videoId }, 30000);
+      if (request !== state.playbackRequest || result.cancelled) return;
+      state.playback = result;
+    } catch (error) {
+      if (request === state.playbackRequest) {
+        playbackNotice(error.message);
+        if (resumePreviewPlayer) bridge("previewStop", { shouldResume: true }, 5000).catch(() => {});
+      }
+    } finally {
+      if (request === state.playbackRequest) { state.playbackBusy = false; updatePlayback(); }
+    }
+  }
+
+  async function playbackCommand(action, videoId) {
+    try {
+      state.playback = await bridge("playbackCommand", { action, videoId }, 5000);
+      updatePlayback();
+      return true;
+    } catch (error) { playbackNotice(error.message); return false; }
   }
 
   function options() {
@@ -174,12 +290,13 @@
   }
 
   async function stopPreview(resumePlayer = true) {
+    state.previewRequest++;
     const shouldResume = resumePlayer && state.preview.resumePlayer;
     clearTimeout(state.preview.timer);
     state.preview.frame?.remove();
     if (state.preview.button) {
       state.preview.button.classList.remove("is-playing");
-      state.preview.button.innerHTML = "▶";
+      state.preview.button.textContent = "20s";
       state.preview.button.setAttribute("aria-label", "Play 20-second preview");
     }
     state.preview = { videoId: "", frame: null, timer: 0, button: null, resumePlayer: false };
@@ -187,11 +304,14 @@
   }
 
   async function togglePreview(track, button) {
+    if (state.playback.active || state.playbackBusy) return;
     if (state.preview.videoId === track.videoId) return stopPreview(true);
     const resumePlayer = state.preview.resumePlayer;
     await stopPreview(false);
+    const request = ++state.previewRequest;
     let playerState = { wasPlaying: false, volume: 50, muted: false };
     try { playerState = await bridge("previewStart", {}, 5000); } catch (_) {}
+    if (request !== state.previewRequest) return;
     const clip = Core.previewWindow(track.duration);
     const frame = document.createElement("iframe");
     frame.className = "mm-preview-frame";
@@ -230,11 +350,20 @@
     saveFeedback();
   }
 
-  function dislikeTrack(track) {
-    recordFeedback(track, -1);
+  function forgetTrack(track, disliked = false) {
+    if (disliked && state.feedback.tracks[track.videoId] !== -1) recordFeedback(track, -1);
+    state.rejected.add(track.videoId);
     state.recommendations = Core.recommend(state.candidates, state.tracks, options());
     render();
     rememberShownRecommendations();
+  }
+
+  async function dislikeTrack(track) {
+    // Remove first: the native player must move on even if ranking changes.
+    if (state.playback.active && !await playbackCommand("remove", track.videoId)) return;
+    forgetTrack(track, true);
+    playbackNotice(`Disliked ${track.title}. Your future picks will adapt.`);
+    (state.playback.active ? $(".mm-player-toggle") : $(".mm-play-all")).focus();
   }
 
   function syncVisiblePlaylist(track, added) {
@@ -371,6 +500,8 @@
   function createTrackCard(track, index) {
     const card = document.createElement("article");
     card.className = "mm-card";
+    card.dataset.videoId = track.videoId;
+    card.dataset.title = track.title;
     card.style.setProperty("--delay", `${Math.min(index * 35, 350)}ms`);
     const art = document.createElement("div");
     art.className = "mm-art";
@@ -384,14 +515,22 @@
     artist.textContent = track.artist;
     const why = document.createElement("small");
     why.textContent = track.reason;
-    copy.append(title, artist, why);
+    const trackState = document.createElement("span");
+    trackState.className = "mm-track-state";
+    copy.append(title, artist, why, trackState);
     const actions = document.createElement("div");
     actions.className = "mm-actions";
     const preview = document.createElement("button");
     preview.className = "mm-preview";
-    preview.innerHTML = "▶";
+    preview.textContent = "20s";
     preview.setAttribute("aria-label", `Play 20-second preview of ${track.title}`);
     preview.addEventListener("click", () => togglePreview(track, preview));
+    const play = document.createElement("button");
+    play.className = "mm-play-track";
+    play.textContent = "▶";
+    play.title = "Play full song in YouTube Music";
+    play.setAttribute("aria-label", `Play ${track.title}`);
+    play.addEventListener("click", () => playDiscoveries(track));
     const dislike = document.createElement("button");
     dislike.className = "mm-vote mm-dislike";
     dislike.textContent = "↓";
@@ -456,15 +595,14 @@
       if (picker.hidden) openPicker();
       else closePlaylistPickers();
     });
-    actions.append(preview, dislike, addWrap);
+    actions.append(play, preview, dislike, addWrap);
     const dismiss = document.createElement("button");
     dismiss.className = "mm-dismiss";
     dismiss.textContent = "×";
     dismiss.setAttribute("aria-label", `Hide ${track.title}`);
-    dismiss.addEventListener("click", () => {
-      state.rejected.add(track.videoId);
-      card.classList.add("is-leaving");
-      setTimeout(() => { card.remove(); updateCount(); }, 220);
+    dismiss.addEventListener("click", async () => {
+      if (state.playback.active && !await playbackCommand("remove", track.videoId)) return;
+      forgetTrack(track);
     });
     card.append(art, copy, actions, dismiss);
     return card;
@@ -481,6 +619,7 @@
     state.recommendations.filter((x) => !state.rejected.has(x.videoId)).forEach((track, i) => list.appendChild(createTrackCard(track, i)));
     $(".mm-engine").textContent = "Taste graph";
     updateCount();
+    updatePlayback();
   }
 
   async function togglePlaylistTrack(track, button) {
@@ -555,7 +694,7 @@
 
   async function generate() {
     if (state.loading) return;
-    const targetPlaylistId = playlistId();
+    const targetPlaylistId = state.playlistId || playlistId();
     state.playlistId = targetPlaylistId;
     if (!targetPlaylistId) {
       setMessage("Open one of your playlists first — the URL needs a list ID.", true);
@@ -666,6 +805,12 @@
   $(".mm-close").addEventListener("click", () => setOpen(false));
   $(".mm-generate").addEventListener("click", generate);
   $(".mm-refresh").addEventListener("click", remixPicks);
+  $(".mm-play-all").addEventListener("click", () => playDiscoveries());
+  $(".mm-player-stop").addEventListener("click", () => playbackCommand("stop"));
+  $(".mm-player-dislike").addEventListener("click", () => {
+    if (state.playback.track) dislikeTrack(state.playback.track);
+  });
+  shell.querySelectorAll(".mm-transport button").forEach((button) => button.addEventListener("click", () => playbackCommand(button.dataset.action)));
   shell.querySelectorAll('input[type="range"]').forEach((input) => input.addEventListener("change", rerank));
   document.addEventListener("click", (event) => {
     if (!event.target.closest?.(".mm-add-wrap")) closePlaylistPickers();
@@ -681,10 +826,15 @@
   });
   chrome.runtime.onMessage.addListener((message) => { if (message.type === "MUSEMINT_TOGGLE") setOpen(!state.open); });
   const feedbackReady = loadFeedback();
+  panel.inert = true;
+  bridge("playbackStatus", {}, 5000).then((data) => { state.playback = data; updatePlayback(); }).catch(() => {});
 
   let observedPlaylistId = playlistId();
   state.playlistId = observedPlaylistId;
   function handleRouteChange() {
+    // Native playback can rewrite /watch?v= without changing the discovery seed.
+    // Only an explicit playlist page switches the playlist we recommend/add to.
+    if (location.pathname !== "/playlist" && (state.playback.active || state.playbackBusy || state.recommendations.length)) return;
     const nextPlaylistId = playlistId();
     if (nextPlaylistId === observedPlaylistId) return;
     const shouldRegenerate = state.recommendations.length > 0 || state.loading;
@@ -692,6 +842,11 @@
     state.generationId += 1;
     state.loading = false;
     clearTimeout(state.routeTimer);
+    state.playbackRequest++;
+    state.playbackBusy = false;
+    bridge("playbackRelease", {}, 5000).catch(() => {});
+    state.playback = { active: false };
+    playbackNotice();
     stopPreview(true);
     state.playlistId = nextPlaylistId;
     state.tracks = [];
@@ -705,6 +860,7 @@
     state.playlistOptionRequests.clear();
     document.querySelectorAll(".mm-playlist-added-row").forEach((row) => row.remove());
     state.rejected.clear();
+    updatePlayback();
     hero.hidden = false;
     controls.hidden = true;
     results.hidden = true;
