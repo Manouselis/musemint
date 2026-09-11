@@ -103,7 +103,6 @@
           <h3>Your playlist has hidden exits.</h3>
           <p>Follow several at once. The taste graph rewards connective tissue, not chart gravity.</p>
           <button class="mm-generate"><span>Mint discoveries</span><kbd>↗</kbd></button>
-          <div class="mm-hint">Open a YouTube Music playlist to begin.</div>
         </section>
         <section class="mm-controls" hidden>
           <label><span>Safe <em>Adventure</em> Weird</span><input name="adventure" type="range" min="0" max="100" value="68"></label>
@@ -114,6 +113,7 @@
         <section class="mm-status" hidden><span class="mm-spinner"></span><strong>Mapping your taste graph…</strong><small>Sampling distant corners of this playlist</small></section>
         <section class="mm-results" hidden><div class="mm-result-head"><span class="mm-count"></span><span class="mm-engine"></span></div><div class="mm-list"></div></section>
       </div>
+      <div class="mm-hint" role="status" aria-live="polite" aria-atomic="true">Open a YouTube Music playlist to begin.</div>
       <footer><button class="mm-privacy" aria-describedby="mm-privacy-tip">Private by design<span id="mm-privacy-tip" role="tooltip">No analytics or developer server. The chooser reads playlist names from YouTube Music on hover or focus; nothing changes until you click.</span></button><span>Runs inside YouTube Music</span></footer>
     </aside>`;
   document.documentElement.appendChild(shell);
@@ -140,6 +140,7 @@
     clearTimeout(messageTimer);
     const hint = $(".mm-hint");
     hint.textContent = message;
+    hint.hidden = !message;
     hint.classList.toggle("is-error", isError);
     if (duration > 0) messageTimer = setTimeout(() => setMessage(""), duration);
   }
@@ -610,6 +611,7 @@
       status.hidden = true;
       controls.hidden = false;
       results.hidden = false;
+      setMessage("");
     } catch (error) {
       hero.hidden = false;
       status.hidden = true;

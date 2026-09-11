@@ -115,7 +115,7 @@
 }
 .mm-generate:hover { background: #35352d; }
 .mm-generate kbd { width: 34px; height: 34px; display: grid; place-items: center; border-radius: 50%; background: var(--mm-acid); color: var(--mm-ink); font: 18px/1 Arial, sans-serif; }
-.mm-hint { width: 100%; margin-top: 12px; color: var(--mm-muted); font-size: 10px; text-align: center; }
+.mm-hint { flex: 0 0 auto; padding: 10px 16px; color: var(--mm-muted); font-size: 11px; text-align: center; }
 .mm-hint.is-error { color: #b72f22; font-weight: 700; }
 
 .mm-controls { padding: 18px 22px 15px; border-bottom: 1px solid var(--mm-line); background: #eae6dc; }
