@@ -135,6 +135,10 @@
 
 .mm-result-head { height: 39px; padding: 0 22px; display: flex; align-items: center; justify-content: space-between; color: var(--mm-muted); border-bottom: 1px solid var(--mm-line); font-size: 9px; font-weight: 800; text-transform: uppercase; letter-spacing: .08em; }
 .mm-engine::before { content: "●"; margin-right: 5px; color: #4c9b57; }
+.mm-taste-info { position: relative; border: 0; padding: 6px 0; background: transparent; color: inherit; font: inherit; text-transform: inherit; letter-spacing: inherit; cursor: help; }
+.mm-taste-info [role="tooltip"] { position: absolute; top: 100%; right: 0; width: min(255px, 70vw); z-index: 40; padding: 12px; border-radius: 8px; background: var(--mm-ink); color: white; font-size: 11px; line-height: 1.5; font-weight: 400; letter-spacing: 0; text-transform: none; text-align: left; visibility: hidden; opacity: 0; box-shadow: 0 10px 28px rgba(0,0,0,.25); }
+.mm-taste-info:hover [role="tooltip"], .mm-taste-info:focus [role="tooltip"] { visibility: visible; opacity: 1; }
+.mm-taste-info:focus-visible { outline: 2px solid var(--mm-ink); outline-offset: 2px; }
 .mm-card { position: relative; min-height: 104px; padding: 13px 38px 13px 14px; display: grid; grid-template-columns: 66px minmax(0,1fr) 66px; gap: 12px; align-items: center; border-bottom: 1px solid var(--mm-line); animation: mm-rise .38s var(--delay) both cubic-bezier(.22,1,.36,1); transition: opacity .2s, transform .2s; }
 @keyframes mm-rise { from { opacity: 0; transform: translateY(10px); } }
 .mm-card:hover { background: rgba(255,255,255,.46); }

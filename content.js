@@ -111,7 +111,7 @@
           <button class="mm-refresh" aria-label="Refresh recommendations">Remix picks</button>
         </section>
         <section class="mm-status" hidden><span class="mm-spinner"></span><strong>Mapping your taste graph…</strong><small>Sampling distant corners of this playlist</small></section>
-        <section class="mm-results" hidden><div class="mm-result-head"><span class="mm-count"></span><span class="mm-engine"></span></div><div class="mm-list"></div></section>
+        <section class="mm-results" hidden><div class="mm-result-head"><span class="mm-count"></span><button class="mm-taste-info" aria-describedby="mm-taste-tip"><span class="mm-engine">Taste graph</span><span id="mm-taste-tip" role="tooltip">Finds songs connected to several parts of this playlist, balances familiar artists with discovery, and learns from your adds and dislikes for this playlist only.</span></button></div><div class="mm-list"></div></section>
       </div>
       <div class="mm-hint" role="status" aria-live="polite" aria-atomic="true">Open a YouTube Music playlist to begin.</div>
       <footer><button class="mm-privacy" aria-describedby="mm-privacy-tip">Private by design<span id="mm-privacy-tip" role="tooltip">No analytics or developer server. The chooser reads playlist names from YouTube Music on hover or focus; nothing changes until you click.</span></button><span>Runs inside YouTube Music</span></footer>
