@@ -135,10 +135,13 @@
     launch.classList.toggle("is-hidden", value);
   }
 
-  function setMessage(message, isError = false) {
+  let messageTimer = 0;
+  function setMessage(message, isError = false, duration = 0) {
+    clearTimeout(messageTimer);
     const hint = $(".mm-hint");
     hint.textContent = message;
     hint.classList.toggle("is-error", isError);
+    if (duration > 0) messageTimer = setTimeout(() => setMessage(""), duration);
   }
 
   function options() {
@@ -235,6 +238,7 @@
     state.recommendations = Core.recommend(state.candidates, state.tracks, options());
     render();
     rememberShownRecommendations();
+    setMessage(`Disliked ${track.title}. Your future picks will adapt.`, false, 4000);
   }
 
   function syncVisiblePlaylist(track, added) {
