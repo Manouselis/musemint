@@ -229,13 +229,14 @@
     };
   }
 
-  function recordFeedback(track, value) {
-    const current = Number(playlistFeedback().tracks[track.videoId] || 0);
+  function recordFeedback(track, value, targetPlaylistId = state.playlistId) {
+    const feedback = Core.playlistFeedback(state.feedbackByPlaylist, targetPlaylistId);
+    const current = Number(feedback.tracks[track.videoId] || 0);
     const next = value < 0 && current === value ? 0 : value;
-    playlistFeedback().tracks[track.videoId] = next;
+    feedback.tracks[track.videoId] = next;
     const artistKey = Core.key(track.artist);
     const delta = next - current;
-    playlistFeedback().artists[artistKey] = Math.max(-5, Math.min(5, Number(playlistFeedback().artists[artistKey] || 0) + delta));
+    feedback.artists[artistKey] = Number(feedback.artists[artistKey] || 0) + delta;
     saveFeedback();
   }
 
@@ -333,7 +334,7 @@
         try {
           await bridge("add", { playlistId: option.playlistId, videoId: track.videoId }, 90000);
           setCachedPlaylistSelection(track.videoId, option.playlistId, true);
-          recordFeedback(track, 1);
+          recordFeedback(track, 1, option.playlistId);
           detail.textContent = "Added";
           mark.textContent = "✓";
           row.classList.add("is-selected");
@@ -496,18 +497,21 @@
 
   async function togglePlaylistTrack(track, button) {
     if (button.disabled) return;
+    const targetPlaylistId = state.playlistId;
+    const routeId = state.generationId;
     button.disabled = true;
     button.classList.add("is-working");
     const removing = state.added.has(track.videoId);
     button.querySelector("em").textContent = removing ? "Removing" : "Adding";
     try {
       if (removing) {
-        await bridge("remove", { playlistId: state.playlistId, videoId: track.videoId, setVideoId: state.added.get(track.videoId) }, 90000);
+        await bridge("remove", { playlistId: targetPlaylistId, videoId: track.videoId, setVideoId: state.added.get(track.videoId) }, 90000);
+        recordFeedback(track, 0, targetPlaylistId);
+        if (state.playlistId !== targetPlaylistId || state.generationId !== routeId) return;
         state.added.delete(track.videoId);
         state.membership.set(track.videoId, "new");
         setCachedPlaylistSelection(track.videoId, state.playlistId, false);
         state.tracks = state.tracks.filter((item) => item.videoId !== track.videoId);
-        recordFeedback(track, 0);
         syncVisiblePlaylist(track, false);
         button.classList.remove("is-working", "is-added", "is-error");
         button.innerHTML = `<span>+</span><em>Add</em>`;
@@ -518,12 +522,13 @@
         button.disabled = false;
         return;
       }
-      const result = await bridge("add", { playlistId: state.playlistId, videoId: track.videoId }, 90000);
+      const result = await bridge("add", { playlistId: targetPlaylistId, videoId: track.videoId }, 90000);
+      recordFeedback(track, 1, targetPlaylistId);
+      if (state.playlistId !== targetPlaylistId || state.generationId !== routeId) return;
       state.added.set(track.videoId, result.setVideoId || "");
       state.membership.set(track.videoId, "existing");
       setCachedPlaylistSelection(track.videoId, state.playlistId, true);
       if (!state.tracks.some((item) => item.videoId === track.videoId)) state.tracks.push(track);
-      recordFeedback(track, 1);
       syncVisiblePlaylist(track, true);
       button.classList.remove("is-working");
       button.classList.add("is-added");

@@ -16,7 +16,7 @@ test("manifest and source contain no language-model integration", () => {
 });
 
 test("the card uses Add as positive feedback and exposes no separate Like control", () => {
-  assert.match(content, /recordFeedback\(track, 1\)/);
+  assert.match(content, /recordFeedback\(track, 1, targetPlaylistId\)/);
   assert.doesNotMatch(content, /mm-like|Like .*recommendations/);
 });
 
