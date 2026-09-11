@@ -105,9 +105,9 @@
           <button class="mm-generate"><span>Mint discoveries</span><kbd>↗</kbd></button>
         </section>
         <section class="mm-controls" hidden>
-          <label><span>Safe <em>Adventure</em> Weird</span><input name="adventure" type="range" min="0" max="100" value="68"></label>
-          <label><span>Familiar <em>Artist novelty</em> New</span><input name="familiarity" type="range" min="0" max="100" value="72"></label>
-          <label><span>Deep cuts <em>Popularity</em> Big hits</span><input name="popularity" type="range" min="0" max="100" value="50"></label>
+          <label><span>Safe <em>Adventure</em> Weird</span><input name="adventure" type="range" min="0" max="100" value="100"></label>
+          <label><span>Familiar <em>Artist novelty</em> New</span><input name="familiarity" type="range" min="0" max="100" value="50"></label>
+          <label><span>Deep cuts <em>Popularity</em> Big hits</span><input name="popularity" type="range" min="0" max="100" value="100"></label>
           <button class="mm-refresh" aria-label="Refresh recommendations">Remix picks</button>
         </section>
         <section class="mm-status" hidden><span class="mm-spinner"></span><strong>Mapping your taste graph…</strong><small>Sampling distant corners of this playlist</small></section>
