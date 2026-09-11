@@ -20,7 +20,7 @@ MuseMint does not extend the final track or repeat a single artist cluster. Its 
 
 - samples up to seven anchors across evenly divided sections of the whole playlist, preferring different artists and including the final track;
 - gives matches to later playlist anchors a small ranking bonus while keeping whole-playlist consensus and diversity stronger. Playlist order is the proxy for recency (tracks at the end are treated as newer); manually reordered playlists may differ from addition order;
-- explores each anchor's separate related-track neighborhood;
+- requests a separate radio explicitly seeded by each anchor, using only its track queue rather than unrelated response shelves or personal automix links;
 - rewards song identities reached from multiple, distant anchors, even when YouTube returns alternate upload IDs;
 - removes tracks already present across alternate uploads, accents, featured-artist labels, uploader prefixes, and common version labels;
 - uses an incrementally cached maximal-marginal-relevance pass to trade off fit against similarity efficiently;
@@ -28,12 +28,12 @@ MuseMint does not extend the final track or repeat a single artist cluster. Its 
 - makes **Remix picks** replace the list with a verified batch of normalized titles that have not appeared earlier in the session;
 - plays a chorus-biased 20-second preview without leaving the playlist, pausing and restoring current playback;
 - matches preview volume and mute state to the active YouTube Music player;
-- treats an add as positive taste feedback and learns locally from dislikes;
+- treats an add as positive taste feedback and learns locally from dislikes separately for each playlist; legacy global feedback is no longer used across playlists;
 - reads every playlist continuation page before ranking or duplicate removal;
 - reads both legacy and current YouTube Music playlist-row response formats;
 - supports discovery from playlists containing just one playable track;
 - preserves delegated/brand-account identity when reading private playlists;
-- falls back through the playlist queue and the playlist page data when the browse endpoint returns no track rows;
+- reads only playlist track shelves, with a playlist-specific queue request as fallback; never uses the current player queue or unrelated recommendation shelves as playlist tracks;
 - automatically regenerates when YouTube Music switches playlists without a page reload;
 - offers a **Popularity** control from deep cuts to bigger hits;
 - verifies every displayed song against YouTube's playlist-membership state, retries transient failures, and excludes anything it cannot positively verify as new.

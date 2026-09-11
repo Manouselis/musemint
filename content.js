@@ -19,7 +19,7 @@
     playlistOptionRequests: new Map(),
     rejected: new Set(),
     variation: 0,
-    feedback: { tracks: {}, artists: {} },
+    feedbackByPlaylist: {},
     preview: { videoId: "", frame: null, timer: 0, button: null, resumePlayer: false },
     generationId: 0,
     routeTimer: 0
@@ -153,7 +153,7 @@
       diversity: 84,
       limit: 14,
       variation: state.variation,
-      feedback: state.feedback
+      feedback: playlistFeedback()
     };
   }
 
@@ -165,16 +165,21 @@
     for (const track of state.recommendations) state.shownTitles.add(recommendationTitle(track));
   }
 
+  function playlistFeedback() {
+    return Core.playlistFeedback(state.feedbackByPlaylist, state.playlistId);
+  }
+
   async function loadFeedback() {
     try {
-      const stored = await chrome.storage.local.get("musemintFeedback");
-      const feedback = stored.musemintFeedback;
-      if (feedback?.tracks && feedback?.artists) state.feedback = feedback;
+      const stored = await chrome.storage.local.get("musemintPlaylistFeedback");
+      if (stored.musemintPlaylistFeedback && typeof stored.musemintPlaylistFeedback === "object") {
+        state.feedbackByPlaylist = stored.musemintPlaylistFeedback;
+      }
     } catch (_) {}
   }
 
   function saveFeedback() {
-    chrome.storage.local.set({ musemintFeedback: state.feedback }).catch(() => {});
+    chrome.storage.local.set({ musemintPlaylistFeedback: state.feedbackByPlaylist }).catch(() => {});
   }
 
   async function stopPreview(resumePlayer = true) {
@@ -225,12 +230,12 @@
   }
 
   function recordFeedback(track, value) {
-    const current = Number(state.feedback.tracks[track.videoId] || 0);
+    const current = Number(playlistFeedback().tracks[track.videoId] || 0);
     const next = value < 0 && current === value ? 0 : value;
-    state.feedback.tracks[track.videoId] = next;
+    playlistFeedback().tracks[track.videoId] = next;
     const artistKey = Core.key(track.artist);
     const delta = next - current;
-    state.feedback.artists[artistKey] = Math.max(-5, Math.min(5, Number(state.feedback.artists[artistKey] || 0) + delta));
+    playlistFeedback().artists[artistKey] = Math.max(-5, Math.min(5, Number(playlistFeedback().artists[artistKey] || 0) + delta));
     saveFeedback();
   }
 
@@ -400,7 +405,7 @@
     const dislike = document.createElement("button");
     dislike.className = "mm-vote mm-dislike";
     dislike.textContent = "↓";
-    dislike.classList.toggle("is-active", state.feedback.tracks[track.videoId] === -1);
+    dislike.classList.toggle("is-active", playlistFeedback().tracks[track.videoId] === -1);
     dislike.setAttribute("aria-label", `Dislike ${track.title}; hide it and reduce similar recommendations`);
     dislike.addEventListener("click", () => dislikeTrack(track));
     const add = document.createElement("button");

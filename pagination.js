@@ -5,6 +5,54 @@
 })(typeof globalThis !== "undefined" ? globalThis : this, function () {
   "use strict";
 
+  // Keep only the requested track container. Response siblings can contain
+  // account recommendations, which must never become playlist seeds.
+  function trackPage(payload, kind, playlistId) {
+    const contents = [];
+    const continuations = [];
+    const seen = new WeakSet();
+    function collect(items = []) {
+      for (const item of items) {
+        if (item.musicResponsiveListItemRenderer || item.playlistPanelVideoRenderer) contents.push(item);
+        else if (item.continuationItemRenderer) continuations.push(item);
+      }
+    }
+    function visit(node, depth = 0) {
+      if (!node || typeof node !== "object" || depth > 35 || seen.has(node)) return;
+      seen.add(node);
+      const container = kind === "playlist"
+        ? node.musicPlaylistShelfRenderer || node.musicPlaylistShelfContinuation
+        : node.playlistPanelRenderer || node.playlistPanelContinuation;
+      if (container) {
+        if (container.playlistId && container.playlistId.replace(/^VL/, "") !== playlistId.replace(/^VL/, "")) return;
+        collect(container.contents);
+        continuations.push(...(container.continuations || []));
+        return;
+      }
+      // Continuation actions have no shelf wrapper. Playlist membership IDs
+      // distinguish playlist rows from appended recommendation shelves.
+      const action = node.appendContinuationItemsAction || node.reloadContinuationItemsCommand;
+      if (action) {
+        const rows = action.continuationItems || [];
+        const matching = rows.filter((item) => {
+          if (kind === "queue") return Boolean(item.playlistPanelVideoRenderer);
+          const row = item.musicResponsiveListItemRenderer;
+          return Boolean(row?.playlistItemData?.playlistSetVideoId || row?.playlistSetVideoId
+            || row?.overlay?.musicItemThumbnailOverlayRenderer?.content?.musicPlayButtonRenderer
+              ?.playNavigationEndpoint?.watchEndpoint?.playlistSetVideoId);
+        });
+        if (matching.length) collect([...matching, ...rows.filter((item) => item.continuationItemRenderer)]);
+        return;
+      }
+      for (const value of Object.values(node)) {
+        if (Array.isArray(value)) value.forEach((item) => visit(item, depth + 1));
+        else visit(value, depth + 1);
+      }
+    }
+    visit(payload);
+    return { contents, continuations };
+  }
+
   function continuationToken(payload, used = new Set()) {
     function find(requirePlaylistContext) {
       let token = "";
@@ -132,5 +180,5 @@
     return { found: Boolean(option), selected: Boolean(option?.selected) };
   }
 
-  return { collectAll, continuationToken, playlistOptionSelected, playlistOptionState, playlistOptionsFrom, setVideoIdFrom };
+  return { collectAll, continuationToken, trackPage, playlistOptionSelected, playlistOptionState, playlistOptionsFrom, setVideoIdFrom };
 });

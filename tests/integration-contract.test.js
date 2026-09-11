@@ -63,13 +63,14 @@ test("a one-track playlist is a valid discovery seed", () => {
   assert.doesNotMatch(content, /state\.tracks\.length < 2/);
 });
 
-test("playlist loading preserves brand identity and has independent fallbacks", () => {
+test("playlist loading preserves brand identity and excludes the live player queue", () => {
   assert.match(bridge, /onBehalfOfUser/);
   assert.match(bridge, /api\("next"/);
-  assert.match(bridge, /pagePlaylistSnapshot/);
+  assert.match(bridge, /MuseMintPagination\.trackPage/);
+  assert.doesNotMatch(bridge, /pagePlaylistSnapshot|ytmusic-player-queue/);
   assert.match(bridge, /source: "browse"/);
   assert.match(bridge, /source: "queue"/);
-  assert.match(bridge, /source: "page"/);
+
 });
 
 test("playlist mutations strip browse-only VL prefixes", () => {

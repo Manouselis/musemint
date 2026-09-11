@@ -207,6 +207,16 @@
     return `${titleIdentity(track.title)}|${artistIdentity(track.artist)}`;
   }
 
+  function playlistFeedback(byPlaylist, playlistId) {
+    const id = String(playlistId || "").replace(/^VL/, "");
+    if (!Object.hasOwn(byPlaylist, id) || !byPlaylist[id]?.tracks || !byPlaylist[id]?.artists) {
+      Object.defineProperty(byPlaylist, id, {
+        value: { tracks: {}, artists: {} }, writable: true, enumerable: true, configurable: true
+      });
+    }
+    return byPlaylist[id];
+  }
+
   function baseScore(track, context) {
     const { artistCounts, seedReach, seedRecency, familiarity, adventure, popularity, feedback, variation } = context;
     const reach = seedReach.get(trackIdentity(track))?.size || 1;
@@ -322,5 +332,5 @@
     return { start, end: Math.min(seconds - 2, start + 20) };
   }
 
-  return { artistIdentity, artistsCompatible, canonicalTrack, chooseSeeds, dedupe, excludeShownTitles, hash, key, parseRendererTrack, previewWindow, recommend, similarity, titleIdentity };
+  return { artistIdentity, artistsCompatible, canonicalTrack, chooseSeeds, dedupe, excludeShownTitles, hash, key, parseRendererTrack, playlistFeedback, previewWindow, recommend, similarity, titleIdentity };
 });

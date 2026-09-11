@@ -62,112 +62,40 @@
     return response.json();
   }
 
-  function collectEndpoints(payload) {
-    const related = [];
-    const automix = [];
-    const seen = new WeakSet();
-    function visit(node, relatedContext = false, depth = 0) {
-      if (!node || typeof node !== "object" || depth > 35 || seen.has(node)) return;
-      seen.add(node);
-      const title = node.tabRenderer?.title || node.title;
-      const inRelated = relatedContext || (typeof title === "string" && title.toLowerCase() === "related");
-      const browse = node.browseEndpoint;
-      if (browse?.browseId && (inRelated || String(browse.browseId).startsWith("MPTR"))) {
-        related.push({ browseId: browse.browseId, params: browse.params });
-      }
-      const watchPlaylist = node.watchPlaylistEndpoint;
-      if (watchPlaylist?.playlistId && String(watchPlaylist.playlistId).startsWith("RD")) {
-        automix.push({ playlistId: watchPlaylist.playlistId, params: watchPlaylist.params });
-      }
-      const watch = node.watchEndpoint;
-      if (watch?.playlistId && String(watch.playlistId).startsWith("RD")) {
-        automix.push({ playlistId: watch.playlistId, params: watch.params });
-      }
-      for (const value of Object.values(node)) {
-        if (Array.isArray(value)) value.forEach((item) => visit(item, inRelated, depth + 1));
-        else visit(value, inRelated, depth + 1);
-      }
-    }
-    visit(payload);
-    const unique = (items, field) => [...new Map(items.map((item) => [item[field], item])).values()];
-    return { related: unique(related, "browseId"), automix: unique(automix, "playlistId") };
-  }
-
   async function neighbors(payload) {
-    const initial = await api("next", {
+    // Request a radio tied explicitly to this anchor, never a personal automix
+    // endpoint discovered elsewhere in the response.
+    const radioId = `RDAMVM${payload.videoId}`;
+    const response = await api("next", {
       videoId: payload.videoId,
+      playlistId: radioId,
       isAudioOnly: true,
-      enablePersistentPlaylistPanel: true,
-      tunerSettingValue: "AUTOMIX_SETTING_NORMAL"
+      enablePersistentPlaylistPanel: true
     });
-    const endpoints = collectEndpoints(initial);
-    const followups = [
-      ...endpoints.related.slice(0, 2).map((endpoint) => api("browse", endpoint)),
-      ...endpoints.automix.slice(0, 1).map((endpoint) => api("next", {
-        playlistId: endpoint.playlistId,
-        params: endpoint.params,
-        isAudioOnly: true,
-        enablePersistentPlaylistPanel: true
-      }))
-    ];
-    const settled = await Promise.allSettled(followups);
-    return { initial, expansions: settled.filter((x) => x.status === "fulfilled").map((x) => x.value) };
+    return MuseMintPagination.trackPage(response, "queue", radioId);
   }
 
   async function fullPlaylist(playlistId) {
-    const rawId = String(playlistId || "");
-    const cleanId = rawId.startsWith("VL") ? rawId.slice(2) : rawId;
-    const browseId = `VL${cleanId}`;
-    const initial = await api("browse", { browseId });
-    const browse = await MuseMintPagination.collectAll(initial, (continuation) => api("browse", { continuation }), 100);
-    if (countTrackRows(browse)) return { ...browse, source: "browse" };
-
+    const cleanId = String(playlistId || "").replace(/^VL/, "");
+    const collect = async (endpoint, body, kind) => {
+      const initial = MuseMintPagination.trackPage(await api(endpoint, body), kind, cleanId);
+      return MuseMintPagination.collectAll(initial, async (continuation) => {
+        const page = MuseMintPagination.trackPage(await api(endpoint, { continuation }), kind, cleanId);
+        if (!page.contents.length) throw new Error("Could not verify all playlist pages. Please retry.");
+        return page;
+      }, 100);
+    };
     try {
-      const queueInitial = await api("next", {
-        playlistId: cleanId,
-        isAudioOnly: true,
-        enablePersistentPlaylistPanel: true
-      });
-      const queue = await MuseMintPagination.collectAll(queueInitial, (continuation) => api("next", { continuation }), 100);
-      if (countTrackRows(queue)) return { ...queue, source: "queue" };
+      const browse = await collect("browse", { browseId: `VL${cleanId}` }, "playlist");
+      if (browse.pages.some((page) => page.contents.length)) return { ...browse, source: "browse" };
     } catch (_) {}
-
-    const snapshot = pagePlaylistSnapshot();
-    if (snapshot.length) {
-      return { pages: [{ pagePlaylistSnapshot: snapshot }], complete: true, pageCount: 1, source: "page" };
-    }
-    return { ...browse, source: "browse", diagnostics: { rendererRows: 0 } };
-  }
-
-  function countTrackRows(payload) {
-    let count = 0;
-    const seen = new WeakSet();
-    function visit(node, depth = 0) {
-      if (!node || typeof node !== "object" || depth > 35 || seen.has(node)) return;
-      seen.add(node);
-      if (node.musicResponsiveListItemRenderer || node.playlistPanelVideoRenderer) count++;
-      for (const value of Object.values(node)) {
-        if (Array.isArray(value)) value.forEach((item) => visit(item, depth + 1));
-        else visit(value, depth + 1);
-      }
-    }
-    visit(payload);
-    return count;
-  }
-
-  function pagePlaylistSnapshot() {
-    const rows = [];
-    const selector = "ytmusic-playlist-shelf-renderer ytmusic-responsive-list-item-renderer, ytmusic-player-queue ytmusic-playlist-panel-video-renderer";
-    for (const element of document.querySelectorAll(selector)) {
-      const data = element.data || element.__data?.data;
-      if (!data || typeof data !== "object") continue;
-      try {
-        rows.push(element.localName === "ytmusic-playlist-panel-video-renderer"
-          ? { playlistPanelVideoRenderer: structuredClone(data) }
-          : { musicResponsiveListItemRenderer: structuredClone(data) });
-      } catch (_) {}
-    }
-    return rows;
+    const queue = await collect("next", {
+      playlistId: cleanId,
+      isAudioOnly: true,
+      enablePersistentPlaylistPanel: true
+    }, "queue");
+    if (queue.pages.some((page) => page.contents.length)) return { ...queue, source: "queue" };
+    throw new Error("Could not read this playlist's tracks. Refresh YouTube Music and retry.");
   }
 
   async function existingPlaylistVideos(playlistId, videoIds = []) {
