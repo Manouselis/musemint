@@ -10,6 +10,4 @@ A track is added to or removed from a playlist only after the user explicitly cl
 
 Preview playback uses an embedded YouTube player and stops automatically after 20 seconds. MuseMint does not operate a preview or recommendation server. It communicates only with YouTube and YouTube Music using the session already active in that tab; it never sends playlist data to the developer or another third party.
 
-Clicking Play discoveries or a song’s full-play button loads the proposed songs through YouTube Music’s `music/get_queue` endpoint and replaces the tab’s playback queue. It does not create or edit a saved playlist. Full songs use YouTube Music’s native player, so its normal listening history behavior applies. MuseMint observes playback and native dislikes while a discovery session is active to show the current song and skip disliked tracks. That session state stays in memory; dislike feedback is stored locally as described above. Native autoplay is temporarily disabled during discovery playback and restored when the session ends or the page unloads.
-
 The extension requests access only to `music.youtube.com` and browser-local `storage`. Removing it removes its code, UI, and locally stored feedback; it does not remove tracks previously added to playlists.

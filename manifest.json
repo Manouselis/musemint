@@ -2,15 +2,15 @@
   "manifest_version": 3,
   "name": "YouTube Music Playlist Suggester — MuseMint",
   "short_name": "MuseMint",
-  "version": "1.5.0",
-  "description": "Taste-graph discoveries, native playback queues, smart previews, and multi-playlist editing for YouTube Music.",
+  "version": "1.4.0",
+  "description": "Taste-graph song suggestions, smart previews, and one-click multi-playlist editing for YouTube Music.",
   "minimum_chrome_version": "120",
   "permissions": ["storage"],
   "host_permissions": ["https://music.youtube.com/*"],
   "content_scripts": [
     {
       "matches": ["https://music.youtube.com/*"],
-      "js": ["pagination.js", "playback.js", "page-bridge.js"],
+      "js": ["pagination.js", "page-bridge.js"],
       "run_at": "document_start",
       "world": "MAIN"
     },
