@@ -10,7 +10,7 @@ MuseMint is a local-first Chrome extension that discovers better additions for t
 4. Open a playlist at `https://music.youtube.com/playlist?list=...`.
 5. Click **Find gems**, then **Mint discoveries**.
 
-Click **Add** to add a pick to the playlist you are viewing. Hover over the split Add control, focus it with the keyboard, or click its chevron to choose another existing playlist. Successful adds never navigate away from the current page, and already-added destinations are clearly marked.
+Click **Add** to add a pick to the playlist you are viewing. Hover over the split Add control for 0.75 seconds, focus it with the keyboard, or click its chevron to choose another existing playlist. Successful adds never navigate away from the current page, and already-added destinations are clearly marked.
 
 You can also pin MuseMint and click its toolbar icon to open or close the panel.
 

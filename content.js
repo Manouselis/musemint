@@ -435,6 +435,7 @@
     let pickerTimer = 0;
     const openPicker = () => {
       clearTimeout(pickerTimer);
+      if (!addWrap.isConnected || !state.open) return;
       closePlaylistPickers(picker);
       const anchorBounds = addWrap.getBoundingClientRect();
       const bodyBounds = addWrap.closest(".mm-body")?.getBoundingClientRect();
@@ -443,7 +444,7 @@
       pickerToggle.setAttribute("aria-expanded", "true");
       loadPlaylistOptions(track, picker, add);
     };
-    const scheduleOpen = () => { clearTimeout(pickerTimer); pickerTimer = setTimeout(openPicker, 180); };
+    const scheduleOpen = () => { clearTimeout(pickerTimer); pickerTimer = setTimeout(openPicker, 750); };
     const scheduleClose = () => {
       clearTimeout(pickerTimer);
       pickerTimer = setTimeout(() => {
