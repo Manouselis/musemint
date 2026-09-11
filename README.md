@@ -1,4 +1,4 @@
-# YouTube Music Playlist Suggester — MuseMint 1.4.0
+# YouTube Music Playlist Suggester — MuseMint 1.4.1
 
 MuseMint is a local-first Chrome extension that discovers better additions for the YouTube Music playlist you are viewing and adds them in one click.
 
@@ -13,6 +13,8 @@ MuseMint is a local-first Chrome extension that discovers better additions for t
 Click **Add** to add a pick to the playlist you are viewing. Hover over the split Add control for 0.75 seconds, focus it with the keyboard, or click its chevron to choose another existing playlist. Successful adds never navigate away from the current page, and already-added destinations are clearly marked.
 
 You can also pin MuseMint and click its toolbar icon to open or close the panel.
+
+The sliders start at maximum Adventure, middle Artist novelty, and maximum Popularity. Hover over or focus the Taste graph label for a brief explanation. Adds train the playlist they are added to; dislikes train only the open playlist. Undoing an add reverses its feedback, and navigating during an edit does not transfer feedback to another playlist.
 
 ## Why the recommendations are different
 
