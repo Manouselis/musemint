@@ -18,7 +18,8 @@ You can also pin MuseMint and click its toolbar icon to open or close the panel.
 
 MuseMint does not extend the final track or repeat a single artist cluster. Its taste engine:
 
-- samples up to seven artist-diverse anchors across the whole playlist;
+- samples up to seven anchors across evenly divided sections of the whole playlist, preferring different artists and including the final track;
+- gives matches to later playlist anchors a small ranking bonus while keeping whole-playlist consensus and diversity stronger. Playlist order is the proxy for recency (tracks at the end are treated as newer); manually reordered playlists may differ from addition order;
 - explores each anchor's separate related-track neighborhood;
 - rewards song identities reached from multiple, distant anchors, even when YouTube returns alternate upload IDs;
 - removes tracks already present across alternate uploads, accents, featured-artist labels, uploader prefixes, and common version labels;

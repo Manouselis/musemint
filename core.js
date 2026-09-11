@@ -208,8 +208,11 @@
   }
 
   function baseScore(track, context) {
-    const { artistCounts, seedReach, familiarity, adventure, popularity, feedback, variation } = context;
+    const { artistCounts, seedReach, seedRecency, familiarity, adventure, popularity, feedback, variation } = context;
     const reach = seedReach.get(trackIdentity(track))?.size || 1;
+    const positions = [...(seedReach.get(trackIdentity(track)) || [])]
+      .filter((id) => seedRecency.has(id)).map((id) => seedRecency.get(id));
+    const recency = positions.length ? positions.reduce((sum, value) => sum + value, 0) / positions.length : 0;
     const rankSignal = 1 - clamp((track.sourceRank - 1) / 50);
     const familiarArtist = artistCounts.has(track.artistKey) ? 1 : 0;
     const consensus = clamp((reach - 1) / 3);
@@ -223,7 +226,7 @@
     const trackAffinity = Number(feedback?.tracks?.[track.videoId] || 0);
     const remixSignal = variation > 0 ? ((hash(`${track.videoId}|${variation}`) % 1000) / 999 - 0.5) * 0.22 : 0;
     return 0.23 * rankSignal + 0.22 * consensus + 0.18 * noveltyFit + 0.11 * familiarityFit + 0.16 * popularityFit
-      + 0.08 * artistAffinity + 0.12 * trackAffinity + remixSignal;
+      + 0.08 * artistAffinity + 0.12 * trackAffinity + remixSignal + 0.04 * recency;
   }
 
   function similarity(a, b) {
@@ -254,7 +257,9 @@
       if (!seedReach.has(identity)) seedReach.set(identity, new Set());
       if (raw.seedId) seedReach.get(identity).add(raw.seedId);
     }
-    const context = { artistCounts: stats.artists, seedReach, ...settings };
+    // Playlist order is the available proxy for addition time; keep its influence small.
+    const seedRecency = new Map(seeds.map((seed, index) => [seed.videoId, index / Math.max(1, seeds.length - 1)]));
+    const context = { artistCounts: stats.artists, seedReach, seedRecency, ...settings };
     const scored = pool.map((track) => ({ ...track, baseScore: baseScore(track, context) }));
     const selected = [];
     const artistUsage = new Map();
@@ -291,17 +296,21 @@
   }
 
   function chooseSeeds(tracks, count = 7) {
+    count = Math.max(0, Math.floor(count));
+    if (!count) return [];
     if (tracks.length <= count) return tracks.slice();
     const picks = [];
     const seenArtists = new Set();
-    for (let i = 0; i < count * 2 && picks.length < count; i++) {
-      const index = Math.round(i * (tracks.length - 1) / Math.max(1, count * 2 - 1));
-      const track = tracks[index];
-      const artist = key(track.artist);
-      if (!seenArtists.has(artist)) { picks.push(track); seenArtists.add(artist); }
+    // One anchor per section preserves coverage even when one artist dominates.
+    for (let i = 0; i < count; i++) {
+      const section = tracks.slice(Math.floor(i * tracks.length / count), Math.floor((i + 1) * tracks.length / count));
+      if (i === count - 1) section.reverse();
+      const track = i === count - 1 ? section[0]
+        : section.find((item) => !seenArtists.has(key(item.artist))) || section[0];
+      picks.push(track);
+      seenArtists.add(key(track.artist));
     }
-    for (const track of tracks) if (picks.length < count && !picks.includes(track)) picks.push(track);
-    return picks.slice(0, count);
+    return picks;
   }
 
   function previewWindow(duration) {

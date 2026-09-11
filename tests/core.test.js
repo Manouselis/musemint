@@ -207,3 +207,38 @@ test("queue rows preserve the artist for duplicate detection", () => {
   assert.equal(parsed.artist, "Queue Artist");
   assert.equal(parsed.videoId, "queue-video");
 });
+
+test("anchors cover every playlist section and include the newest track", () => {
+  for (const sameArtist of [false, true]) {
+    const tracks = Array.from({ length: 70 }, (_, i) => ({ videoId: String(i), title: `Seed ${i}`, artist: sameArtist ? "Same" : `Artist ${i}` }));
+    const chosen = Core.chooseSeeds(tracks);
+    assert.equal(chosen.length, 7);
+    chosen.forEach((track, i) => assert.equal(Math.floor(Number(track.videoId) / 10), i));
+    assert.equal(chosen.at(-1).videoId, "69");
+  }
+  assert.deepEqual(Core.chooseSeeds(seeds), seeds);
+  assert.deepEqual(Core.chooseSeeds(seeds, 0), []);
+});
+
+test("recent-anchor fit gets a small bonus without overpowering whole-playlist consensus", () => {
+  const playlist = Array.from({ length: 10 }, (_, i) => ({ videoId: `seed${i}`, title: `Seed ${i}`, artist: `Artist ${i}` }));
+  const candidate = (videoId, seedId) => ({ videoId, title: videoId, artist: `New ${videoId}`, sourceRank: 8, seedId });
+  const pool = [candidate("older", "seed0"), candidate("recent", "seed9"),
+    candidate("consensus", "seed0"), candidate("consensus", "seed1")];
+  const ranked = Core.recommend(pool, playlist, { diversity: 0 });
+  const scores = Object.fromEntries(ranked.map((track) => [track.videoId, track.baseScore]));
+  assert.ok(scores.recent > scores.older);
+  assert.ok(scores.recent - scores.older <= 0.040001);
+  assert.ok(scores.consensus > scores.recent);
+  const reversed = Core.recommend(pool.slice(0, 2), [...playlist].reverse(), { diversity: 0 });
+  assert.equal(reversed[0].videoId, "older");
+});
+
+test("recency ignores unknown anchors and deduplicates repeated source evidence", () => {
+  const candidate = { videoId: "new", title: "New song", artist: "New artist", sourceRank: 8, seedId: "s3" };
+  const score = (pool, playlist = seeds) => Core.recommend(pool, playlist)[0].baseScore;
+  assert.equal(score([candidate]), score([candidate, candidate]));
+  assert.equal(score([{ ...candidate, seedId: "unknown" }]), score([{ ...candidate, seedId: "" }]));
+  assert.ok(Number.isFinite(score([candidate], [])));
+  assert.ok(Number.isFinite(score([candidate], [seeds[2]])));
+});
