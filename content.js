@@ -544,7 +544,7 @@
       setCachedPlaylistSelection(track.videoId, state.playlistId, true);
       if (!state.tracks.some((item) => item.videoId === track.videoId)) state.tracks.push(track);
       syncVisiblePlaylist(track, true);
-      button.classList.remove("is-working");
+      button.classList.remove("is-working", "is-error");
       button.classList.add("is-added");
       button.innerHTML = `<span>✓</span><em>Added</em>`;
       button.title = "Click again to remove from playlist";
@@ -558,6 +558,7 @@
       button.classList.add("is-error");
       button.querySelector("em").textContent = "Retry";
       button.title = error.message;
+      setMessage(`Could not ${removing ? "remove" : "add"} ${track.title}: ${error.message}`, true);
     }
   }
 

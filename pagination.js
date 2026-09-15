@@ -92,8 +92,9 @@
     function visit(node, depth = 0) {
       if (result || !node || typeof node !== "object" || depth > 35 || seen.has(node)) return;
       seen.add(node);
-      if (node.playlistEditVideoAddedResultData?.videoId) {
-        result = node.playlistEditVideoAddedResultData.videoId;
+      const added = node.playlistEditVideoAddedResultData;
+      if (added?.setVideoId && (!addedVideoId || !added.videoId || added.videoId === addedVideoId)) {
+        result = added.setVideoId;
         return;
       }
       const item = node.musicResponsiveListItemRenderer || node.playlistPanelVideoRenderer;
@@ -103,7 +104,7 @@
         ).find((action) => action?.removedVideoId === addedVideoId);
         const playEndpoint = item.overlay?.musicItemThumbnailOverlayRenderer?.content?.musicPlayButtonRenderer
           ?.playNavigationEndpoint?.watchEndpoint;
-        const itemVideoId = item.playlistItemData?.videoId || playEndpoint?.videoId || menuAction?.removedVideoId;
+        const itemVideoId = item.playlistItemData?.videoId || item.videoId || playEndpoint?.videoId || menuAction?.removedVideoId;
         if (itemVideoId === addedVideoId) {
           result = item.playlistItemData?.playlistSetVideoId || item.playlistSetVideoId
             || playEndpoint?.playlistSetVideoId || menuAction?.setVideoId || "";

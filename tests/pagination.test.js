@@ -47,7 +47,7 @@ test("playlist continuation wins over unrelated shelf continuations", () => {
 });
 
 test("setVideoIdFrom reads the add response membership ID", () => {
-  const response = { playlistEditResults: [{ playlistEditVideoAddedResultData: { videoId: "set-123" } }] };
+  const response = { playlistEditResults: [{ playlistEditVideoAddedResultData: { videoId: "song-1", setVideoId: "set-123" } }] };
   assert.equal(Pagination.setVideoIdFrom(response, "song-1"), "set-123");
 });
 

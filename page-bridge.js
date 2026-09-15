@@ -139,6 +139,45 @@
     return { wasPlaying: false, volume: 50, muted: false };
   }
 
+  const pendingAdds = new Map();
+  function addPlaylistVideo(payload) {
+    const playlistId = String(payload.playlistId || "").replace(/^VL/, "");
+    const key = `${playlistId}:${payload.videoId}`;
+    if (pendingAdds.has(key)) return pendingAdds.get(key);
+    const request = (async () => {
+      const membership = async () => MuseMintPagination.playlistOptionState(
+        await api("playlist/get_add_to_playlist", { videoIds: [payload.videoId] }), playlistId);
+      const before = await membership();
+      if (!before.found) throw new Error("Could not verify the destination playlist. Refresh YouTube Music and try again.");
+      if (before.selected) return { setVideoId: "", alreadyAdded: true };
+      let response;
+      let failure;
+      try {
+        response = await api("browse/edit_playlist", {
+          playlistId,
+          actions: [{ action: "ACTION_ADD_VIDEO", addedVideoId: payload.videoId }]
+        });
+        const setVideoId = MuseMintPagination.setVideoIdFrom(response, payload.videoId);
+        if (response.status === "STATUS_SUCCEEDED" || (!response.error && !response.status && setVideoId)) {
+          // Undo can look up a missing membership ID later. A failed playlist
+          // reload must never turn an acknowledged add into a retry.
+          return { setVideoId };
+        }
+        failure = new Error(response.error?.message || "YouTube Music did not confirm the add. Please try again.");
+      } catch (error) { failure = error; }
+      // An edit may have reached YouTube even if its response was lost.
+      // Confirm membership before offering Retry; never resend it blindly.
+      try {
+        const after = await membership();
+        if (after.found && after.selected) return { setVideoId: "" };
+      } catch (_) {}
+      throw failure;
+    })();
+    pendingAdds.set(key, request);
+    request.finally(() => pendingAdds.delete(key)).catch(() => {});
+    return request;
+  }
+
   async function handle(type, payload) {
     if (type === "neighbors") return neighbors(payload);
     if (type === "search") return api("search", { query: payload.query });
@@ -149,19 +188,7 @@
       return { playlists: MuseMintPagination.playlistOptionsFrom(response) };
     }
     if (type === "previewStart" || type === "previewStop") return playerCommand(type, payload.shouldResume);
-    if (type === "add") {
-      const playlistId = String(payload.playlistId || "").replace(/^VL/, "");
-      const response = await api("browse/edit_playlist", {
-        playlistId,
-        actions: [{ action: "ACTION_ADD_VIDEO", addedVideoId: payload.videoId }]
-      });
-      let setVideoId = MuseMintPagination.setVideoIdFrom(response, payload.videoId);
-      if (!setVideoId) {
-        const playlist = await fullPlaylist(payload.playlistId);
-        setVideoId = MuseMintPagination.setVideoIdFrom(playlist, payload.videoId);
-      }
-      return { response, setVideoId };
-    }
+    if (type === "add") return addPlaylistVideo(payload);
     if (type === "remove") {
       const playlistId = String(payload.playlistId || "").replace(/^VL/, "");
       let setVideoId = payload.setVideoId;
