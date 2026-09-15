@@ -92,7 +92,7 @@
   shell.id = "musemint-root";
   shell.innerHTML = `
     <button class="mm-launch" aria-label="Open MuseMint"><span class="mm-mark">M</span><span>Find gems</span></button>
-    <aside class="mm-panel" aria-label="MuseMint recommendations" aria-hidden="true">
+    <aside class="mm-panel" aria-label="MuseMint recommendations" aria-hidden="true" inert>
       <header class="mm-header">
         <div><div class="mm-eyebrow">PLAYLIST ALCHEMY</div><h2>MuseMint</h2></div>
         <button class="mm-icon mm-close" aria-label="Close">×</button>
@@ -100,18 +100,18 @@
       <div class="mm-body">
         <section class="mm-hero">
           <div class="mm-orbit"><span></span><i></i><b></b></div>
-          <h3>Your playlist has hidden exits.</h3>
-          <p>Follow several at once. The taste graph rewards connective tissue, not chart gravity.</p>
+          <h3>Find your next favorite.</h3>
+          <p>Discover songs connected to this playlist. Preview a pick, shape your taste, and add it in one click.</p>
           <button class="mm-generate"><span>Mint discoveries</span><kbd>↗</kbd></button>
         </section>
         <section class="mm-controls" hidden>
-          <label><span>Safe <em>Adventure</em> Weird</span><input name="adventure" type="range" min="0" max="100" value="100"></label>
-          <label><span>Familiar <em>Artist novelty</em> New</span><input name="familiarity" type="range" min="0" max="100" value="50"></label>
-          <label><span>Deep cuts <em>Popularity</em> Big hits</span><input name="popularity" type="range" min="0" max="100" value="100"></label>
+          <label><span>Safe <em>Adventure <output class="mm-slider-value" data-value-for="adventure"></output></em> Weird</span><input aria-label="Adventure" name="adventure" type="range" min="0" max="100" value="100"></label>
+          <label><span>Familiar <em>Artist novelty <output class="mm-slider-value" data-value-for="familiarity"></output></em> New</span><input aria-label="Artist novelty" name="familiarity" type="range" min="0" max="100" value="50"></label>
+          <label><span>Deep cuts <em>Popularity <output class="mm-slider-value" data-value-for="popularity"></output></em> Big hits</span><input aria-label="Popularity" name="popularity" type="range" min="0" max="100" value="100"></label>
           <button class="mm-refresh" aria-label="Refresh recommendations">Remix picks</button>
         </section>
-        <section class="mm-status" hidden><span class="mm-spinner"></span><strong>Mapping your taste graph…</strong><small>Sampling distant corners of this playlist</small></section>
-        <section class="mm-results" hidden><div class="mm-result-head"><span class="mm-count"></span><button class="mm-taste-info" aria-describedby="mm-taste-tip"><span class="mm-engine">Taste graph</span><span id="mm-taste-tip" role="tooltip">Finds songs connected to several parts of this playlist, balances familiar artists with discovery, and learns from your adds and dislikes for this playlist only.</span></button></div><div class="mm-list"></div></section>
+        <section class="mm-status" hidden><span class="mm-spinner"></span><strong>Mapping your taste graph…</strong><small>Sampling distant corners of this playlist</small><button class="mm-cancel">Cancel discovery</button></section>
+        <section class="mm-results" hidden><div class="mm-result-head"><span class="mm-count"></span><button class="mm-taste-info" aria-describedby="mm-taste-tip"><span class="mm-engine">Taste graph</span><span id="mm-taste-tip" role="tooltip">Finds songs connected to several parts of this playlist, balances familiar artists with discovery, and learns from your adds and dislikes for this playlist only.</span></button></div><div class="mm-list"></div><div class="mm-empty" hidden><strong>No picks left in this batch</strong><p>Try Remix picks for fresh songs, or show the picks you hid.</p><button class="mm-restore">Show hidden picks</button></div></section>
       </div>
       <div class="mm-hint" role="status" aria-live="polite" aria-atomic="true">Open a YouTube Music playlist to begin.</div>
       <footer><button class="mm-privacy" aria-describedby="mm-privacy-tip">Private by design<span id="mm-privacy-tip" role="tooltip">No analytics or developer server. The chooser reads playlist names from YouTube Music on hover or focus; nothing changes until you click.</span></button><span>Runs inside YouTube Music</span></footer>
@@ -129,10 +129,13 @@
 
   function setOpen(value) {
     state.open = value;
+    panel.inert = !value;
     if (!value) closePlaylistPickers();
     panel.classList.toggle("is-open", value);
     panel.setAttribute("aria-hidden", String(!value));
     launch.classList.toggle("is-hidden", value);
+    if (value) $(".mm-close").focus();
+    else if (panel.contains(document.activeElement)) launch.focus();
   }
 
   let messageTimer = 0;
@@ -489,6 +492,7 @@
     dismiss.setAttribute("aria-label", `Hide ${track.title}`);
     dismiss.addEventListener("click", () => {
       state.rejected.add(track.videoId);
+      if (state.preview.videoId === track.videoId) stopPreview();
       card.classList.add("is-leaving");
       setTimeout(() => { card.remove(); updateCount(); }, 220);
     });
@@ -499,6 +503,8 @@
   function updateCount() {
     const count = list.querySelectorAll(".mm-card:not(.is-leaving)").length;
     $(".mm-count").textContent = `${count} ${count === 1 ? "discovery" : "discoveries"}`;
+    $(".mm-empty").hidden = count > 0;
+    $(".mm-restore").hidden = !state.rejected.size;
   }
 
   function render() {
@@ -584,6 +590,26 @@
     return shortlist.filter((track) => state.membership.get(track.videoId) === "new");
   }
 
+  function setBusy(busy) {
+    state.loading = busy;
+    controls.querySelectorAll("input, button").forEach((control) => { control.disabled = busy; });
+    $(".mm-generate").disabled = busy;
+    $(".mm-refresh").textContent = busy ? "Finding fresh picks…" : "Remix picks";
+  }
+
+  function cancelDiscovery() {
+    if (!state.loading) return;
+    state.generationId += 1;
+    setBusy(false);
+    status.hidden = true;
+    const hasPicks = state.recommendations.length > 0;
+    hero.hidden = hasPicks;
+    controls.hidden = !hasPicks;
+    results.hidden = !hasPicks;
+    setMessage("Discovery canceled. You can try again whenever you're ready.", false, 4000);
+    (hasPicks ? $(".mm-refresh") : $(".mm-generate")).focus();
+  }
+
   async function generate() {
     if (state.loading) return;
     const targetPlaylistId = playlistId();
@@ -592,13 +618,15 @@
       setMessage("Open one of your playlists first — the URL needs a list ID.", true);
       return;
     }
-    state.loading = true;
+    setBusy(true);
     const runId = ++state.generationId;
     state.candidatePool = [];
     state.candidates = [];
     state.membership.clear();
     state.shownTitles.clear();
     await feedbackReady;
+    if (runId !== state.generationId) return;
+    setMessage("");
     hero.hidden = true;
     controls.hidden = true;
     results.hidden = true;
@@ -617,8 +645,9 @@
       let viable = Core.dedupe(state.candidatePool, state.tracks);
       if (viable.length < 8) {
         $(".mm-status strong").textContent = "Opening a second discovery route…";
-        state.candidatePool.push(...await searchFallback(seeds));
+        const fallback = await searchFallback(seeds);
         if (runId !== state.generationId) return;
+        state.candidatePool.push(...fallback);
         viable = Core.dedupe(state.candidatePool, state.tracks);
       }
       if (viable.length < 1) throw new Error("No new tracks escaped this playlist. Try Remix picks or a different playlist.");
@@ -638,15 +667,17 @@
       results.hidden = false;
       setMessage("");
     } catch (error) {
+      if (runId !== state.generationId) return;
       hero.hidden = false;
       status.hidden = true;
       setMessage(error.message || "Something went sideways. Try again.", true);
     } finally {
-      if (runId === state.generationId) state.loading = false;
+      if (runId === state.generationId) setBusy(false);
     }
   }
 
   function rerank() {
+    if (state.loading) return;
     if (!state.candidates.length) return generate();
     state.recommendations = Core.recommend(state.candidates, state.tracks, options());
     render();
@@ -656,7 +687,7 @@
   async function remixPicks() {
     if (state.loading) return;
     if (!state.candidatePool.length) return generate();
-    state.loading = true;
+    setBusy(true);
     const runId = ++state.generationId;
     const refresh = $(".mm-refresh");
     refresh.disabled = true;
@@ -664,6 +695,7 @@
     refresh.title = "";
     results.hidden = true;
     status.hidden = false;
+    setMessage("");
     $(".mm-status strong").textContent = "Taking a different route through your taste graph…";
     try {
       state.variation += 1;
@@ -681,11 +713,13 @@
       rememberShownRecommendations();
       $(".mm-engine").textContent = "Fresh batch";
     } catch (error) {
+      if (runId !== state.generationId) return;
+      setMessage(error.message || "No fresh batch was available. Your current picks are still here.", true);
       refresh.title = error.message || "No fresh batch was available.";
       $(".mm-engine").textContent = "No unseen batch found";
     } finally {
       if (runId === state.generationId) {
-        state.loading = false;
+        setBusy(false);
         status.hidden = true;
         results.hidden = false;
         refresh.disabled = false;
@@ -698,7 +732,21 @@
   $(".mm-close").addEventListener("click", () => setOpen(false));
   $(".mm-generate").addEventListener("click", generate);
   $(".mm-refresh").addEventListener("click", remixPicks);
-  shell.querySelectorAll('input[type="range"]').forEach((input) => input.addEventListener("change", rerank));
+  $(".mm-cancel").addEventListener("click", cancelDiscovery);
+  $(".mm-restore").addEventListener("click", () => {
+    state.rejected.clear();
+    render();
+    $(".mm-refresh").focus();
+  });
+  shell.querySelectorAll('input[type="range"]').forEach((input) => {
+    const update = () => {
+      shell.querySelector(`[data-value-for="${input.name}"]`).textContent = `${input.value}%`;
+      input.setAttribute("aria-valuetext", `${input.value} percent`);
+    };
+    update();
+    input.addEventListener("input", update);
+    input.addEventListener("change", rerank);
+  });
   document.addEventListener("click", (event) => {
     if (!event.target.closest?.(".mm-add-wrap")) closePlaylistPickers();
   });
@@ -722,7 +770,7 @@
     const shouldRegenerate = state.recommendations.length > 0 || state.loading;
     observedPlaylistId = nextPlaylistId;
     state.generationId += 1;
-    state.loading = false;
+    setBusy(false);
     clearTimeout(state.routeTimer);
     stopPreview(true);
     state.playlistId = nextPlaylistId;

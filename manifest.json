@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "YouTube Music Playlist Suggester \u2014 MuseMint",
   "short_name": "MuseMint",
-  "version": "1.4.1",
+  "version": "1.5.0",
   "description": "Taste-graph song suggestions, smart previews, and one-click multi-playlist editing for YouTube Music.",
   "minimum_chrome_version": "120",
   "permissions": [
