@@ -1,20 +1,24 @@
-"""Render MuseMint's geometric M / sound-wave mark with Pillow."""
+"""Render a two-color MuseMint monogram, designed on a 16-pixel grid."""
 from pathlib import Path
 from PIL import Image, ImageDraw
 
 root = Path(__file__).resolve().parents[1] / 'icons'
 root.mkdir(exist_ok=True)
-scale = 4
-image = Image.new('RGBA', (128 * scale, 128 * scale))
-draw = ImageDraw.Draw(image)
-def box(values):
-    return tuple(int(value * scale) for value in values)
-draw.rounded_rectangle(box((2, 2, 126, 126)), radius=30 * scale, fill='#171713')
-draw.ellipse(box((14, 14, 114, 114)), fill='#d9ff43')
-points = [(34, 86), (34, 44), (49, 65), (64, 40), (79, 65), (94, 44), (94, 86)]
-draw.line([(x * scale, y * scale) for x, y in points], fill='#171713', width=9 * scale, joint='curve')
-for x, y in points:
-    draw.ellipse(box((x-4.5, y-4.5, x+4.5, y+4.5)), fill='#171713')
-draw.polygon([(x * scale, y * scale) for x, y in [(104, 7), (108, 18), (119, 22), (108, 26), (104, 37), (100, 26), (89, 22), (100, 18)]], fill='#ff6a4c')
+resampling = getattr(Image, 'Resampling', Image).LANCZOS
+
 for size in (16, 32, 48, 128):
-    image.resize((size, size), getattr(Image, "Resampling", Image).LANCZOS).save(root / f'icon-{size}.png')
+    # Supersample each output independently to keep the small mark crisp.
+    scale = 8
+    unit = size * scale / 16
+    image = Image.new('RGBA', (size * scale, size * scale))
+    draw = ImageDraw.Draw(image)
+    def box(values):
+        return tuple(round(value * unit) for value in values)
+
+    draw.rounded_rectangle(box((0, 0, 16, 16)), radius=round(3.5 * unit), fill='#d9ff43')
+    points = [(4.5, 11.5), (4.5, 4.5), (8, 8), (11.5, 4.5), (11.5, 11.5)]
+    draw.line([(round(x * unit), round(y * unit)) for x, y in points],
+              fill='#171713', width=round(1.75 * unit), joint='curve')
+    for x, y in points:
+        draw.ellipse(box((x - .875, y - .875, x + .875, y + .875)), fill='#171713')
+    image.resize((size, size), resampling).save(root / f'icon-{size}.png')
