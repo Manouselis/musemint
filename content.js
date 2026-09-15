@@ -182,7 +182,17 @@
     chrome.storage.local.set({ musemintPlaylistFeedback: state.feedbackByPlaylist }).catch(() => {});
   }
 
+  let previewRequestId = 0;
+  let previewStarting = false;
+  document.addEventListener("play", (event) => {
+    const media = event.target;
+    if (!["video", "audio"].includes(media?.localName) || !media.closest?.("#movie_player")) return;
+    if (state.preview.frame || previewStarting) stopPreview(false);
+  }, true);
+
   async function stopPreview(resumePlayer = true) {
+    previewRequestId += 1;
+    previewStarting = false;
     const shouldResume = resumePlayer && state.preview.resumePlayer;
     clearTimeout(state.preview.timer);
     state.preview.frame?.remove();
@@ -199,8 +209,12 @@
     if (state.preview.videoId === track.videoId) return stopPreview(true);
     const resumePlayer = state.preview.resumePlayer;
     await stopPreview(false);
+    const requestId = ++previewRequestId;
+    previewStarting = true;
     let playerState = { wasPlaying: false, volume: 50, muted: false };
     try { playerState = await bridge("previewStart", {}, 5000); } catch (_) {}
+    if (requestId !== previewRequestId) return;
+    previewStarting = false;
     const clip = Core.previewWindow(track.duration);
     const frame = document.createElement("iframe");
     frame.className = "mm-preview-frame";
