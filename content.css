@@ -195,7 +195,7 @@
 .mm-privacy:hover [role="tooltip"], .mm-privacy:focus-visible [role="tooltip"] { opacity: 1; visibility: visible; transform: translateY(0); }
 .mm-preview-frame { position: fixed !important; width: 1px !important; height: 1px !important; left: -9999px !important; bottom: 0 !important; border: 0 !important; opacity: .01 !important; pointer-events: none !important; }
 
-.mm-playlist-added-row { min-height: 56px; padding: 6px 24px 6px 8px; display: grid; grid-template-columns: 40px minmax(0, 1fr) auto; gap: 14px; align-items: center; border-bottom: 1px solid rgba(255,255,255,.08); color: var(--ytmusic-text-primary, #fff); animation: mm-rise .35s both cubic-bezier(.22,1,.36,1); }
+.mm-playlist-added-row { --mm-acid: #d9ff43; --mm-ink: #171713; min-height: 56px; padding: 6px 24px 6px 8px; display: grid; grid-template-columns: 40px minmax(0, 1fr) auto; gap: 14px; align-items: center; border-bottom: 1px solid rgba(255,255,255,.08); color: var(--ytmusic-text-primary, #fff); animation: mm-rise .35s both cubic-bezier(.22,1,.36,1); }
 .mm-playlist-added-row img { width: 40px; height: 40px; object-fit: cover; background: rgba(255,255,255,.08); }
 .mm-playlist-added-row > div { min-width: 0; display: flex; flex-direction: column; }
 .mm-playlist-added-row strong, .mm-playlist-added-row > div span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

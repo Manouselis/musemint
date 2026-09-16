@@ -265,32 +265,13 @@
     setMessage(`Disliked ${track.title}. Your future picks will adapt.`, false, 4000);
   }
 
+  const playlistView = globalThis.MuseMintPlaylistView.create({
+    document,
+    currentPlaylistId: () => location.pathname === "/playlist" ? playlistId() : "",
+    origin: location.origin
+  });
   function syncVisiblePlaylist(track, added) {
-    const existing = document.querySelector(`.mm-playlist-added-row[data-video-id="${CSS.escape(track.videoId)}"]`);
-    if (!added) { existing?.remove(); return; }
-    if (existing) return;
-    const firstRow = document.querySelector("ytmusic-responsive-list-item-renderer");
-    const container = document.querySelector("ytmusic-playlist-shelf-renderer #contents")
-      || document.querySelector("ytmusic-player-queue #contents")
-      || firstRow?.closest("ytmusic-playlist-shelf-renderer")?.querySelector("#contents");
-    if (!container) return;
-    const row = document.createElement("div");
-    row.className = "mm-playlist-added-row";
-    row.dataset.videoId = track.videoId;
-    const image = document.createElement("img");
-    image.alt = "";
-    if (track.thumbnail) image.src = track.thumbnail;
-    const copy = document.createElement("div");
-    const title = document.createElement("strong");
-    title.textContent = track.title;
-    const artist = document.createElement("span");
-    artist.textContent = `${track.artist} · Added by MuseMint`;
-    copy.append(title, artist);
-    const badge = document.createElement("span");
-    badge.className = "mm-playlist-added-badge";
-    badge.textContent = "Added";
-    row.append(image, copy, badge);
-    container.appendChild(row);
+    playlistView.update(track, added, state.playlistId);
   }
 
   function normalizedPlaylistId(value) {
@@ -518,7 +499,6 @@
   async function togglePlaylistTrack(track, button) {
     if (button.disabled) return;
     const targetPlaylistId = state.playlistId;
-    const routeId = state.generationId;
     button.disabled = true;
     button.classList.add("is-working");
     const removing = state.added.has(track.videoId);
@@ -527,7 +507,7 @@
       if (removing) {
         await bridge("remove", { playlistId: targetPlaylistId, videoId: track.videoId, setVideoId: state.added.get(track.videoId) }, 90000);
         recordFeedback(track, 0, targetPlaylistId);
-        if (state.playlistId !== targetPlaylistId || state.generationId !== routeId) return;
+        if (state.playlistId !== targetPlaylistId) return;
         state.added.delete(track.videoId);
         state.membership.set(track.videoId, "new");
         setCachedPlaylistSelection(track.videoId, state.playlistId, false);
@@ -544,7 +524,7 @@
       }
       const result = await bridge("add", { playlistId: targetPlaylistId, videoId: track.videoId }, 90000);
       recordFeedback(track, 1, targetPlaylistId);
-      if (state.playlistId !== targetPlaylistId || state.generationId !== routeId) return;
+      if (state.playlistId !== targetPlaylistId) return;
       state.added.set(track.videoId, result.setVideoId || "");
       state.membership.set(track.videoId, "existing");
       setCachedPlaylistSelection(track.videoId, state.playlistId, true);
@@ -783,7 +763,7 @@
     state.added.clear();
     state.playlistOptions.clear();
     state.playlistOptionRequests.clear();
-    document.querySelectorAll(".mm-playlist-added-row").forEach((row) => row.remove());
+    playlistView.clear();
     state.rejected.clear();
     hero.hidden = false;
     controls.hidden = true;
@@ -794,6 +774,6 @@
   }
   document.addEventListener("yt-navigate-finish", handleRouteChange);
   window.addEventListener("popstate", handleRouteChange);
-  new MutationObserver(handleRouteChange).observe(document.body, { childList: true, subtree: true });
+  new MutationObserver(() => { handleRouteChange(); playlistView.schedule(); }).observe(document.body, { childList: true, subtree: true });
   setInterval(handleRouteChange, 1000);
 })();

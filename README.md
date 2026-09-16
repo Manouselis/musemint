@@ -4,7 +4,7 @@
 
 MuseMint is a Chrome extension for discovering songs connected to the YouTube Music playlist you have open. Preview a suggestion, adjust your discovery settings, and add it to a playlist without leaving the page.
 
-**Version 1.5.0** · No account setup · No API key to supply · No developer server
+**Version 1.5.1** · No account setup · No API key to supply · No developer server
 
 ## Get started
 
@@ -23,7 +23,7 @@ Pin MuseMint to the browser toolbar for quick access. Its toolbar button toggles
 | Control | What it does |
 | --- | --- |
 | **▶ Preview** | Plays a 20-second excerpt, matching the native player's volume and mute setting. |
-| **Add** | Adds the song to the open playlist. Click **Added** to remove that addition and reverse its taste feedback. |
+| **Add** | Adds the song and shows it immediately in the open playlist without refreshing. Click **Added** to remove that addition and reverse its taste feedback. |
 | **⌄ Choose playlist** | Opens your editable playlists. Hovering over Add for 0.75 seconds or focusing the control also opens the chooser. |
 | **↓ Dislike** | Removes the song from recommendations and learns for the open playlist. Confirmation disappears after four seconds. |
 | **× Hide** | Hides a pick for this tab session without recording a dislike. If the batch becomes empty, **Show hidden picks** restores hidden recommendations. |
@@ -88,6 +88,7 @@ node --test tests/*.test.js
 | --- | --- |
 | `content.js` / `content.css` | Panel, discovery workflow, previews, and interactions |
 | `core.js` | Ranking, duplicate detection, and playlist-specific feedback |
+| `playlist-view.js` | Immediate playlist-row updates and reconciliation after page rerenders |
 | `pagination.js` | Track containers, continuation pages, membership, and edit IDs |
 | `page-bridge.js` | Same-origin YouTube Music requests and native-player coordination |
 | `manifest.json` / `service-worker.js` | Extension configuration and toolbar toggle |
