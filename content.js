@@ -260,14 +260,14 @@
   function dislikeTrack(track) {
     recordFeedback(track, -1);
     state.recommendations = Core.recommend(state.candidates, state.tracks, options());
-    render();
+    render({ preservePreview: true });
     rememberShownRecommendations();
     setMessage(`Disliked ${track.title}. Your future picks will adapt.`, false, 4000);
   }
 
   const playlistView = globalThis.MuseMintPlaylistView.create({
     document,
-    currentPlaylistId: () => location.pathname === "/playlist" ? playlistId() : "",
+    currentPlaylistId: () => playlistId(),
     origin: location.origin
   });
   function syncVisiblePlaylist(track, added) {
@@ -401,6 +401,12 @@
     preview.innerHTML = "▶";
     preview.setAttribute("aria-label", `Play 20-second preview of ${track.title}`);
     preview.addEventListener("click", () => togglePreview(track, preview));
+    if (state.preview.frame && state.preview.videoId === track.videoId) {
+      preview.classList.add("is-playing");
+      preview.innerHTML = "■";
+      preview.setAttribute("aria-label", `Stop preview of ${track.title}`);
+      state.preview.button = preview;
+    }
     const dislike = document.createElement("button");
     dislike.className = "mm-vote mm-dislike";
     dislike.textContent = "↓";
@@ -488,8 +494,11 @@
     $(".mm-restore").hidden = !state.rejected.size;
   }
 
-  function render() {
-    if (state.preview.frame) stopPreview();
+  function render({ preservePreview = false } = {}) {
+    if (state.preview.frame && !preservePreview) stopPreview();
+    // Cards are rebuilt below; a surviving preview card binds its new button.
+    // If the playing song was disliked, its frame and end timer keep running.
+    if (preservePreview) state.preview.button = null;
     list.replaceChildren();
     state.recommendations.filter((x) => !state.rejected.has(x.videoId)).forEach((track, i) => list.appendChild(createTrackCard(track, i)));
     $(".mm-engine").textContent = "Taste graph";

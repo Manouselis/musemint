@@ -50,3 +50,52 @@ test('normal preview stop still resumes the original player', async () => {
   await vm.runInContext('stopPreview(true)', h.context);
   assert.deepEqual(h.calls, ['previewStop']);
 });
+
+for (const dislikedId of ['playing', 'other']) test(`downvoting ${dislikedId} preserves the active preview and end timer`, async () => {
+  const Core = require('../core.js');
+  const h = harness();
+  const playing = { videoId: 'playing', title: 'Playing', artist: 'One' };
+  const other = { videoId: 'other', title: 'Other', artist: 'Two' };
+  const candidates = [playing, other];
+  Object.assign(h.state, { playlistId: 'LOFI', feedbackByPlaylist: {}, candidates,
+    recommendations: candidates, tracks: [], rejected: new Set() });
+  h.state.preview.videoId = 'playing';
+  const frame = h.state.preview.frame;
+  const timer = h.state.preview.timer;
+  const messages = [];
+  const cards = [];
+  Object.assign(h.context, { Core, saveFeedback() {}, rememberShownRecommendations() {}, updateCount() {},
+    options: () => ({ feedback: Core.playlistFeedback(h.state.feedbackByPlaylist, 'LOFI') }),
+    list: { replaceChildren() { cards.length = 0; }, appendChild(card) { cards.push(card); } },
+    $: () => ({}), setMessage: (...args) => messages.push(args) });
+  const buttonSource = source.slice(source.indexOf('    const preview = document.createElement("button");'), source.indexOf('    const dislike = document.createElement("button");'));
+  h.context.document.createElement = () => ({ innerHTML: '', attributes: {}, classList: { add() {}, remove() {} },
+    addEventListener() {}, setAttribute(name, value) { this.attributes[name] = value; } });
+  h.context.createTrackCard = (track) => {
+    h.context.track = track;
+    return vm.runInContext(`(() => { ${buttonSource}; return { videoId: track.videoId, button: preview }; })()`, h.context);
+  };
+  vm.runInContext(source.slice(source.indexOf('  function recordFeedback('), source.indexOf('  const playlistView')), h.context);
+  vm.runInContext(source.slice(source.indexOf('  function render('), source.indexOf('  async function togglePlaylistTrack(')), h.context);
+  h.context.disliked = candidates.find(track => track.videoId === dislikedId);
+  vm.runInContext('dislikeTrack(disliked)', h.context);
+  assert.strictEqual(h.state.preview.frame, frame);
+  assert.equal(h.state.preview.timer, timer);
+  assert.equal(h.state.preview.resumePlayer, true);
+  assert.equal(h.removed(), 0);
+  assert.deepEqual(h.calls, []);
+  assert.ok(cards.every(card => card.videoId !== dislikedId));
+  assert.equal(Core.playlistFeedback(h.state.feedbackByPlaylist, 'LOFI').tracks[dislikedId], -1);
+  assert.equal(messages[0][2], 4000);
+  if (dislikedId === 'other') {
+    assert.strictEqual(h.state.preview.button, cards[0].button);
+    assert.equal(cards[0].button.innerHTML, '■');
+    assert.equal(cards[0].button.attributes['aria-label'], 'Stop preview of Playing');
+  } else {
+    assert.equal(h.state.preview.button, null);
+  }
+  // The original timeout still uses this same stop path when the clip ends.
+  await vm.runInContext('stopPreview(true)', h.context);
+  assert.equal(h.removed(), 1);
+  assert.deepEqual(h.calls, ['previewStop']);
+});

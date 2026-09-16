@@ -1,7 +1,7 @@
 const assert = require('node:assert/strict');
 const test = require('node:test');
 const View = require('../playlist-view.js');
-function harness({ modern = false, hidden = false, delayed = false } = {}) {
+function harness({ modern = false, hidden = false, delayed = false, boxless = false } = {}) {
   let current = 'LOFI';
   let ready = !delayed;
   let native = [];
@@ -11,6 +11,7 @@ function harness({ modern = false, hidden = false, delayed = false } = {}) {
   const makeElement = () => ({ dataset: {}, children: [], append(...children) { this.children.push(...children); },
     remove() { rows = rows.filter(row => row !== this); }, scrollIntoView() { scrolls++; } });
   const container = {
+    getClientRects: () => hidden ? [] : [{}],
     appendChild(row) { rows.push(row); },
     querySelectorAll(selector) {
       if (selector === '.mm-playlist-added-row') return rows;
@@ -20,7 +21,7 @@ function harness({ modern = false, hidden = false, delayed = false } = {}) {
   const shelf = { localName: modern ? 'ytmusic-shelf-renderer' : 'ytmusic-playlist-shelf-renderer',
     closest: () => null, getClientRects: () => [{}],
     querySelector: selector => selector === '#contents' ? (modern ? null : container) : { parentElement: container } };
-  const page = { closest: () => hidden ? {} : null, getClientRects: () => hidden ? [] : [{}],
+  const page = { closest: () => hidden ? {} : null, getClientRects: () => hidden || boxless ? [] : [{}],
     querySelectorAll: () => [shelf] };
   const document = { createElement: makeElement, querySelectorAll(selector) {
     if (selector === '.mm-playlist-added-row') return rows;
@@ -103,4 +104,24 @@ test('an add finishing during Remix still updates the current playlist', async (
   assert.equal(updates.length, 1);
   assert.equal(updates[0][1], true);
   assert.equal(button.disabled, false);
+});
+
+test('a boxless page wrapper does not hide a visible playlist from reconciliation', () => {
+  const h = harness({ boxless: true });
+  h.view.update(h.track, true, 'LOFI');
+  assert.equal(h.rows().length, 1);
+});
+
+test('playback URLs keep the displayed playlist eligible for immediate additions', () => {
+  const fs = require('node:fs');
+  const vm = require('node:vm');
+  const source = fs.readFileSync(require.resolve('../content.js'), 'utf8');
+  let config;
+  const location = { pathname: '/watch', origin: 'https://music.youtube.com', href: 'https://music.youtube.com/watch?v=original&list=LOFI' };
+  const context = vm.createContext({ location, document: {}, playlistId: () => new URL(location.href).searchParams.get('list'),
+    MuseMintPlaylistView: { create(options) { config = options; return {}; } } });
+  vm.runInContext(source.slice(source.indexOf('  const playlistView'), source.indexOf('  function normalizedPlaylistId')), context);
+  assert.equal(config.currentPlaylistId(), 'LOFI');
+  location.href = 'https://music.youtube.com/watch?v=original';
+  assert.equal(config.currentPlaylistId(), null);
 });

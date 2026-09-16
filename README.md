@@ -4,7 +4,7 @@
 
 MuseMint is a Chrome extension for discovering songs connected to the YouTube Music playlist you have open. Preview a suggestion, adjust your discovery settings, and add it to a playlist without leaving the page.
 
-**Version 1.5.1** · No account setup · No API key to supply · No developer server
+**Version 1.5.2** · No account setup · No API key to supply · No developer server
 
 ## Get started
 
@@ -25,7 +25,7 @@ Pin MuseMint to the browser toolbar for quick access. Its toolbar button toggles
 | **▶ Preview** | Plays a 20-second excerpt, matching the native player's volume and mute setting. |
 | **Add** | Adds the song and shows it immediately in the open playlist without refreshing. Click **Added** to remove that addition and reverse its taste feedback. |
 | **⌄ Choose playlist** | Opens your editable playlists. Hovering over Add for 0.75 seconds or focusing the control also opens the chooser. |
-| **↓ Dislike** | Removes the song from recommendations and learns for the open playlist. Confirmation disappears after four seconds. |
+| **↓ Dislike** | Removes the song from recommendations and learns for the open playlist. The current preview keeps playing, even when you dislike that song. Confirmation disappears after four seconds. |
 | **× Hide** | Hides a pick for this tab session without recording a dislike. If the batch becomes empty, **Show hidden picks** restores hidden recommendations. |
 | **Remix picks** | Looks for a fresh batch of verified titles you haven't seen in this session. If the pool is exhausted, your current picks remain visible. |
 | **Cancel discovery** | Stops waiting for a discovery or remix run and ignores its late results. Requests already sent may still finish in the background. |

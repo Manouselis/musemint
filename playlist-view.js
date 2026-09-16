@@ -12,15 +12,26 @@
     function containerForPlaylist() {
       // Never use the player queue, a hidden SPA page, or a recommendation carousel.
       for (const page of document.querySelectorAll("ytmusic-browse-response")) {
-        if (page.closest("[hidden]") || !page.getClientRects().length) continue;
+        if (page.closest("[hidden]")) continue;
         const shelves = [...page.querySelectorAll("ytmusic-playlist-shelf-renderer, ytmusic-shelf-renderer")];
         shelves.sort((a, b) => Number(b.localName === "ytmusic-playlist-shelf-renderer") - Number(a.localName === "ytmusic-playlist-shelf-renderer"));
         for (const shelf of shelves) {
-          if (shelf.closest("[hidden]") || !shelf.getClientRects().length) continue;
+          if (shelf.closest("[hidden]")) continue;
           const firstRow = shelf.querySelector("ytmusic-responsive-list-item-renderer");
           if (!firstRow && shelf.localName !== "ytmusic-playlist-shelf-renderer") continue;
           const container = firstRow?.parentElement || shelf.querySelector("#contents");
-          if (container) return container;
+          // Polymer wrappers can use display: contents and have no own box.
+          // Check the actual list/row instead of rejecting the whole page.
+          if (!container || !(container.getClientRects().length || firstRow?.getClientRects().length)) continue;
+          const linkedPlaylists = new Set();
+          for (const link of container.querySelectorAll("ytmusic-responsive-list-item-renderer a[href]")) {
+            try {
+              const id = new URL(link.getAttribute("href"), origin).searchParams.get("list");
+              if (id) linkedPlaylists.add(normalize(id));
+            } catch (_) {}
+          }
+          if (linkedPlaylists.size && !linkedPlaylists.has(normalize(currentPlaylistId()))) continue;
+          return container;
         }
       }
       return null;
