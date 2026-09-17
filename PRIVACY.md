@@ -8,6 +8,8 @@ The same read-only membership request verifies each proposed song before display
 
 A track is added to or removed from a playlist only after the user explicitly clicks the relevant control. Add feedback and dislikes are stored only in the browser's extension-local storage, keyed by playlist ID, so MuseMint can adapt that playlist's later rankings without mixing tastes across playlists. Legacy global feedback remains stored but is no longer used. Playlist names, playlist contents, and YouTube account identifiers are not written to extension storage.
 
+After a confirmed Add to the open playlist, MuseMint checks whether that playlist is playing. If so, it reads the added song's playback metadata with `music/get_queue` and inserts it into the tab's native Up next queue. This queue update does not send another saved-playlist edit.
+
 Preview playback uses an embedded YouTube player and stops automatically after 20 seconds. MuseMint does not operate a preview or recommendation server. It communicates only with YouTube and YouTube Music using the session already active in that tab; it never sends playlist data to the developer or another third party.
 
 The extension requests access only to `music.youtube.com` and browser-local `storage`. Removing it removes its code, UI, and locally stored feedback; it does not remove tracks previously added to playlists.

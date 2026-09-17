@@ -20,7 +20,7 @@ function bridgeHarness(respond) {
     postMessage: (message) => { result = message; }
   };
   const context = vm.createContext({ window, document: { cookie: '' }, location: { origin: 'https://music.youtube.com' },
-    structuredClone, MuseMintPagination: Pagination,
+    structuredClone, MuseMintPagination: Pagination, MuseMintPlaybackQueue: require('../playback-queue.js'),
     fetch: async (url, options) => {
       const body = JSON.parse(options.body);
       requests.push({ url, body });

@@ -539,6 +539,13 @@
       setCachedPlaylistSelection(track.videoId, state.playlistId, true);
       if (!state.tracks.some((item) => item.videoId === track.videoId)) state.tracks.push(track);
       syncVisiblePlaylist(track, true);
+      // Queue synchronization is separate from the acknowledged playlist edit:
+      // a queue failure must not turn a successful add into a duplicate retry.
+      bridge("syncPlaybackQueue", { playlistId: targetPlaylistId, videoId: track.videoId }).catch(() => {
+        if (state.playlistId === targetPlaylistId && state.added.has(track.videoId)) {
+          setMessage(`Added ${track.title} to the playlist, but Up next could not be updated.`, true);
+        }
+      });
       button.classList.remove("is-working", "is-error");
       button.classList.add("is-added");
       button.innerHTML = `<span>✓</span><em>Added</em>`;

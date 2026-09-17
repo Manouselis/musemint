@@ -81,7 +81,9 @@
         container.appendChild(addedRow);
         if (entry.reveal) {
           entry.reveal = false;
-          addedRow.scrollIntoView?.({ block: "nearest", behavior: "auto" });
+          if (!document.querySelector?.('ytmusic-player-page[player-page-open]')) {
+            addedRow.scrollIntoView?.({ block: "nearest", behavior: "auto" });
+          }
         }
       }
     }

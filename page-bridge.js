@@ -139,6 +139,7 @@
     return { wasPlaying: false, volume: 50, muted: false };
   }
 
+  const playbackQueue = MuseMintPlaybackQueue.create({ document, api });
   const pendingAdds = new Map();
   function addPlaylistVideo(payload) {
     const playlistId = String(payload.playlistId || "").replace(/^VL/, "");
@@ -189,6 +190,7 @@
     }
     if (type === "previewStart" || type === "previewStop") return playerCommand(type, payload.shouldResume);
     if (type === "add") return addPlaylistVideo(payload);
+    if (type === "syncPlaybackQueue") return playbackQueue.add(payload.playlistId, payload.videoId);
     if (type === "remove") {
       const playlistId = String(payload.playlistId || "").replace(/^VL/, "");
       let setVideoId = payload.setVideoId;
@@ -196,10 +198,15 @@
         setVideoId = MuseMintPagination.setVideoIdFrom(await fullPlaylist(payload.playlistId), payload.videoId);
       }
       if (!setVideoId) throw new Error("YouTube Music did not expose this playlist membership. Refresh once and retry.");
-      return api("browse/edit_playlist", {
+      const response = await api("browse/edit_playlist", {
         playlistId,
         actions: [{ action: "ACTION_REMOVE_VIDEO", setVideoId, removedVideoId: payload.videoId }]
       });
+      if (response.status !== "STATUS_SUCCEEDED" || response.error) {
+        throw new Error(response.error?.message || "YouTube Music did not confirm the removal. Please try again.");
+      }
+      playbackQueue.remove(playlistId, payload.videoId);
+      return response;
     }
     throw new Error("Unknown MuseMint request.");
   }

@@ -14,7 +14,8 @@ function harness(respond) {
     postMessage: message => results.set(message.id, message)
   };
   vm.runInNewContext(fs.readFileSync(require.resolve('../page-bridge.js'), 'utf8'), {
-    window, document: { cookie: '' }, location: { origin: 'https://music.youtube.com' }, structuredClone, MuseMintPagination: Pagination,
+    window, document: { cookie: '', querySelector: () => null }, location: { origin: 'https://music.youtube.com' }, structuredClone, MuseMintPagination: Pagination,
+    MuseMintPlaybackQueue: require('../playback-queue.js'),
     fetch: async (url, options) => {
       const endpoint = url.split('/v1/')[1].split('?')[0];
       const body = JSON.parse(options.body);
